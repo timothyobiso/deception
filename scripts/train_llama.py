@@ -4,6 +4,7 @@
 import argparse
 import os
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, Trainer
 from datasets import Dataset
@@ -92,10 +93,63 @@ class DeceptionDataCollator:
             'labels': labels,
         }
         
-        if 'deception_label' in examples[0]:
-            batch['deception_labels'] = torch.tensor([ex['deception_label'] for ex in examples])
+        if 'deception_labels' in examples[0]:
+            batch['deception_labels'] = torch.tensor([ex['deception_labels'] for ex in examples])
         
         return batch
+
+
+class DeceptionLlamaTrainer(Trainer):
+    """HF Trainer subclass that adds deception classification loss."""
+
+    def __init__(self, deception_head, deception_weight=1.0, **kwargs):
+        super().__init__(**kwargs)
+        self.deception_head = deception_head
+        self.deception_weight = deception_weight
+
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+        deception_labels = inputs.pop("deception_labels", None)
+
+        outputs = model(
+            input_ids=inputs["input_ids"],
+            attention_mask=inputs["attention_mask"],
+            labels=inputs["labels"],
+            output_hidden_states=True,
+        )
+        lm_loss = outputs.loss
+
+        # Compute deception loss when labels are present
+        deception_loss = torch.tensor(0.0, device=lm_loss.device)
+        if deception_labels is not None:
+            hidden = outputs.hidden_states[-1]  # (B, seq, D)
+            mask = inputs["attention_mask"].unsqueeze(-1).float()
+            pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
+            # Move pooled to deception head device in case of multi-GPU
+            head_device = next(self.deception_head.parameters()).device
+            deception_out = self.deception_head(pooled.to(head_device))
+            deception_logits = deception_out["deception_logits"].squeeze(-1)
+            deception_loss = nn.functional.binary_cross_entropy_with_logits(
+                deception_logits, deception_labels.float().to(head_device)
+            )
+
+        loss = lm_loss + self.deception_weight * deception_loss.to(lm_loss.device)
+        return (loss, outputs) if return_outputs else loss
+
+    def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval"):
+        self.deception_head.eval()
+        result = super().evaluate(eval_dataset, ignore_keys, metric_key_prefix)
+        self.deception_head.train()
+        return result
+
+    def create_optimizer(self):
+        """Include deception head parameters in the optimizer."""
+        super().create_optimizer()
+        # Add deception head params to the existing optimizer param groups
+        self.optimizer.add_param_group({
+            "params": list(self.deception_head.parameters()),
+            "lr": self.args.learning_rate,
+        })
+        return self.optimizer
 
 
 def main():
@@ -240,8 +294,10 @@ def main():
     # Create data collator
     data_collator = DeceptionDataCollator(tokenizer, max_length=args.max_length)
     
-    # Create Trainer
-    hf_trainer = Trainer(
+    # Create Trainer with multi-task deception loss
+    hf_trainer = DeceptionLlamaTrainer(
+        deception_head=model_wrapper.deception_head,
+        deception_weight=1.0,
         model=model_wrapper.model,
         args=training_args,
         train_dataset=train_dataset,

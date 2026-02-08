@@ -335,7 +335,7 @@ class WerewolfAmongUsDataset:
             )
 
             # Build input text with context
-            input_text = f"[werewolf] {speaker} ({start_role}): {utterance}"
+            input_text = f"[werewolf] {speaker}: {utterance}"
 
             examples.append({
                 'text': input_text,
