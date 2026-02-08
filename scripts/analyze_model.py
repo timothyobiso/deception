@@ -201,15 +201,16 @@ class DeceptionAnalyzer:
         activations = []
         deception_labels = []
         
-        for batch in tqdm(test_data[:500]):  # Use subset for SAE
+        sae_data = test_data.select(range(min(500, len(test_data))))
+        for batch in tqdm(sae_data):
             input_ids = batch['input_ids'].unsqueeze(0).to(self.device)
-            
+
             with torch.no_grad():
                 outputs = self.model(input_ids, output_hidden_states=True)
                 hidden = outputs.hidden_states[target_layer]
-                
+
                 # Mean pool over sequence
-                pooled = hidden.mean(dim=1)
+                pooled = hidden.mean(dim=1).float()
                 activations.append(pooled.cpu())
                 deception_labels.append(batch.get('deception_labels', 0))
         
@@ -287,8 +288,10 @@ class DeceptionAnalyzer:
         pathway_analyzer = PathwayAnalysis(self.model, self.device)
         
         # Test on deceptive vs honest examples
-        deceptive_examples = [ex for ex in test_data if ex.get('deception_labels', 0) == 1][:10]
-        honest_examples = [ex for ex in test_data if ex.get('deception_labels', 0) == 0][:10]
+        deceptive_idx = [i for i in range(len(test_data)) if test_data[i]['deception_labels'] == 1][:10]
+        honest_idx = [i for i in range(len(test_data)) if test_data[i]['deception_labels'] == 0][:10]
+        deceptive_examples = [test_data[i] for i in deceptive_idx]
+        honest_examples = [test_data[i] for i in honest_idx]
         
         print("Tracing information flow for deceptive examples...")
         deceptive_paths = []
