@@ -34,6 +34,20 @@ class ActivationSteering:
         self.device = device
         self.hooks = []
         self.steering_vectors = {}
+
+    def _get_layers(self):
+        base = self.model
+        while hasattr(base, 'base_model'):
+            base = base.base_model
+        while hasattr(base, 'model') and base is not base.model:
+            base = base.model
+        if hasattr(base, 'model') and hasattr(base.model, 'layers'):
+            return base.model.layers
+        if hasattr(base, 'layers'):
+            return base.layers
+        if hasattr(base, 'transformer') and hasattr(base.transformer, 'h'):
+            return base.transformer.h
+        raise ValueError("Cannot identify transformer layers")
     
     def compute_steering_vector(
         self,
@@ -50,13 +64,8 @@ class ActivationSteering:
             def hook_fn(module, input, output):
                 activations.append(output[0].detach())
             
-            if hasattr(self.model, 'transformer'):
-                target_layer = self.model.transformer.h[layer_idx]
-            elif hasattr(self.model, 'layers'):
-                target_layer = self.model.layers[layer_idx]
-            else:
-                raise ValueError("Cannot identify model layers")
-            
+            target_layer = self._get_layers()[layer_idx]
+
             hook = target_layer.register_forward_hook(hook_fn)
             
             with torch.no_grad():
@@ -107,14 +116,10 @@ class ActivationSteering:
             
             return hook_fn
         
+        layers = self._get_layers()
         for layer_idx, vector in steering_vectors.items():
-            if hasattr(self.model, 'transformer'):
-                target_layer = self.model.transformer.h[layer_idx]
-            elif hasattr(self.model, 'layers'):
-                target_layer = self.model.layers[layer_idx]
-            else:
-                continue
-            
+            target_layer = layers[layer_idx]
+
             hook = target_layer.register_forward_hook(
                 create_steering_hook(layer_idx, vector)
             )
@@ -174,6 +179,20 @@ class FeatureSteering:
         self.sae = sae
         self.probe = probe
         self.device = device
+
+    def _get_layers(self):
+        base = self.model
+        while hasattr(base, 'base_model'):
+            base = base.base_model
+        while hasattr(base, 'model') and base is not base.model:
+            base = base.model
+        if hasattr(base, 'model') and hasattr(base.model, 'layers'):
+            return base.model.layers
+        if hasattr(base, 'layers'):
+            return base.layers
+        if hasattr(base, 'transformer') and hasattr(base.transformer, 'h'):
+            return base.transformer.h
+        raise ValueError("Cannot identify transformer layers")
     
     def steer_sae_features(
         self,
@@ -216,26 +235,20 @@ class FeatureSteering:
                 return (hidden,) + output[1:]
             return hidden
         
-        if hasattr(self.model, 'transformer'):
-            if layer_idx == -1:
-                layer_idx = len(self.model.transformer.h) - 1
-            target_layer = self.model.transformer.h[layer_idx]
-        elif hasattr(self.model, 'layers'):
-            if layer_idx == -1:
-                layer_idx = len(self.model.layers) - 1
-            target_layer = self.model.layers[layer_idx]
-        else:
-            raise ValueError("Cannot identify model layers")
-        
+        layers = self._get_layers()
+        if layer_idx == -1:
+            layer_idx = len(layers) - 1
+        target_layer = layers[layer_idx]
+
         hook = target_layer.register_forward_hook(intervention_hook)
-        
+
         with torch.no_grad():
             output = self.model(input_ids)
-        
+
         hook.remove()
-        
+
         return output
-    
+
     def steer_probe_direction(
         self,
         input_ids: torch.Tensor,
@@ -271,24 +284,18 @@ class FeatureSteering:
                 return (hidden,) + output[1:]
             return hidden
         
-        if hasattr(self.model, 'transformer'):
-            if layer_idx == -1:
-                layer_idx = len(self.model.transformer.h) - 1
-            target_layer = self.model.transformer.h[layer_idx]
-        elif hasattr(self.model, 'layers'):
-            if layer_idx == -1:
-                layer_idx = len(self.model.layers) - 1
-            target_layer = self.model.layers[layer_idx]
-        else:
-            raise ValueError("Cannot identify model layers")
-        
+        layers = self._get_layers()
+        if layer_idx == -1:
+            layer_idx = len(layers) - 1
+        target_layer = layers[layer_idx]
+
         hook = target_layer.register_forward_hook(intervention_hook)
-        
+
         with torch.no_grad():
             output = self.model(input_ids)
-        
+
         hook.remove()
-        
+
         return output
 
 

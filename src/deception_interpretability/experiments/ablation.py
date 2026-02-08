@@ -21,7 +21,7 @@ class AblationConfig:
 
 class ComponentAblation:
     """Ablate specific components to understand their role in deception."""
-    
+
     def __init__(
         self,
         model: nn.Module,
@@ -33,6 +33,21 @@ class ComponentAblation:
         self.device = device
         self.baseline_performance = {}
         self.ablation_values = {}
+
+    def _get_layers(self):
+        """Get the list of transformer layers, unwrapping PEFT if needed."""
+        base = self.model
+        while hasattr(base, 'base_model'):
+            base = base.base_model
+        while hasattr(base, 'model') and base is not base.model:
+            base = base.model
+        if hasattr(base, 'model') and hasattr(base.model, 'layers'):
+            return base.model.layers
+        if hasattr(base, 'layers'):
+            return base.layers
+        if hasattr(base, 'transformer') and hasattr(base.transformer, 'h'):
+            return base.transformer.h
+        raise ValueError("Cannot identify transformer layers")
     
     def ablate_attention_heads(
         self,
@@ -78,22 +93,17 @@ class ComponentAblation:
                 return (attn_output,) + output[1:]
             return attn_output
         
-        if hasattr(self.model, 'transformer'):
-            target_layer = self.model.transformer.h[layer_idx]
-        elif hasattr(self.model, 'layers'):
-            target_layer = self.model.layers[layer_idx]
-        else:
-            raise ValueError("Cannot identify model layers")
-        
+        target_layer = self._get_layers()[layer_idx]
+
         hook = target_layer.register_forward_hook(ablation_hook)
-        
+
         with torch.no_grad():
             output = self.model(input_ids)
-        
+
         hook.remove()
-        
+
         return output
-    
+
     def ablate_mlp_neurons(
         self,
         input_ids: torch.Tensor,
@@ -122,22 +132,17 @@ class ComponentAblation:
                 return (hidden,) + output[1:]
             return hidden
         
-        if hasattr(self.model, 'transformer'):
-            target_layer = self.model.transformer.h[layer_idx]
-        elif hasattr(self.model, 'layers'):
-            target_layer = self.model.layers[layer_idx]
-        else:
-            raise ValueError("Cannot identify model layers")
-        
+        target_layer = self._get_layers()[layer_idx]
+
         hook = target_layer.register_forward_hook(ablation_hook)
-        
+
         with torch.no_grad():
             output = self.model(input_ids)
-        
+
         hook.remove()
-        
+
         return output
-    
+
     def ablate_features(
         self,
         input_ids: torch.Tensor,
@@ -176,16 +181,10 @@ class ComponentAblation:
                 return (hidden,) + output[1:]
             return hidden
         
-        if hasattr(self.model, 'transformer'):
-            if layer_idx == -1:
-                layer_idx = len(self.model.transformer.h) - 1
-            target_layer = self.model.transformer.h[layer_idx]
-        elif hasattr(self.model, 'layers'):
-            if layer_idx == -1:
-                layer_idx = len(self.model.layers) - 1
-            target_layer = self.model.layers[layer_idx]
-        else:
-            raise ValueError("Cannot identify model layers")
+        layers = self._get_layers()
+        if layer_idx == -1:
+            layer_idx = len(layers) - 1
+        target_layer = layers[layer_idx]
         
         hook = target_layer.register_forward_hook(ablation_hook)
         
@@ -306,11 +305,28 @@ class InteractionAnalysis:
 
 class PathwayAnalysis:
     """Analyze information flow pathways for deception."""
-    
+
     def __init__(self, model: nn.Module, device: str = 'cpu'):
         self.model = model
         self.device = device
         self.activation_cache = {}
+
+    def _get_layers(self):
+        """Get the list of transformer layers, unwrapping PEFT if needed."""
+        # Unwrap PEFT model
+        base = self.model
+        while hasattr(base, 'base_model'):
+            base = base.base_model
+        while hasattr(base, 'model') and base is not base.model:
+            base = base.model
+        # Llama: model.layers, GPT-2: transformer.h
+        if hasattr(base, 'model') and hasattr(base.model, 'layers'):
+            return base.model.layers
+        if hasattr(base, 'layers'):
+            return base.layers
+        if hasattr(base, 'transformer') and hasattr(base.transformer, 'h'):
+            return base.transformer.h
+        raise ValueError("Cannot identify transformer layers")
     
     def trace_information_flow(
         self,
@@ -337,13 +353,9 @@ class PathwayAnalysis:
             return hook_fn
         
         hooks = []
+        layers = self._get_layers()
         for layer_idx in range(source_layer, target_layer + 1):
-            if hasattr(self.model, 'transformer'):
-                layer = self.model.transformer.h[layer_idx]
-            elif hasattr(self.model, 'layers'):
-                layer = self.model.layers[layer_idx]
-            else:
-                continue
+            layer = layers[layer_idx]
             
             hook = layer.register_forward_hook(create_trace_hook(layer_idx))
             hooks.append(hook)
@@ -387,7 +399,7 @@ class PathwayAnalysis:
         """Identify critical paths for deception signal propagation."""
         critical_paths = []
         
-        num_layers = len(self.model.transformer.h) if hasattr(self.model, 'transformer') else len(self.model.layers)
+        num_layers = len(self._get_layers())
         
         for feat_idx in deception_features:
             for start_layer in range(num_layers - 1):
