@@ -104,6 +104,7 @@ class DeceptionAnalyzer:
             indices = np.random.choice(len(test_data), num_samples, replace=False)
             test_data = test_data.select(indices)
 
+        test_data.set_format("torch", columns=["input_ids", "attention_mask", "deception_labels", "role_labels"])
         return test_data
     
     def run_probe_analysis(self, test_data):
