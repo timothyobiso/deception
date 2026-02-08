@@ -15,9 +15,9 @@ import json
 import pandas as pd
 
 from deception_interpretability.models.llama_deception_model import LlamaDeceptionModel
-from deception_interpretability.interpretability.probes import ProbeAnalyzer, DeceptionProbeKit
+from deception_interpretability.interpretability.probes import ProbeAnalyzer, DeceptionProbeKit, LinearProbe, MLPProbe
 from deception_interpretability.interpretability.sae import SparseAutoencoder, SAEConfig, SAEAnalyzer
-from deception_interpretability.experiments.steering import ActivationSteering, SteeringConfig
+from deception_interpretability.experiments.steering import ActivationSteering, FeatureSteering, SteeringConfig
 from deception_interpretability.experiments.ablation import ComponentAblation, AblationConfig
 from deception_interpretability.data.hf_dataset_loaders import UnifiedHFDataset
 
@@ -116,87 +116,122 @@ class DeceptionAnalyzer:
         return test_data
     
     def run_probe_analysis(self, test_data):
-        """Run probing analysis to find deception-related neurons."""
+        """Run probing analysis: linear, MLP, and control (shuffled) probes per layer."""
         print("\n" + "="*50)
         print("PROBE ANALYSIS")
         print("="*50)
-        
+
         analyzer = ProbeAnalyzer(self.model, self.device)
-        probe_kit = DeceptionProbeKit(self.device)
-        
-        # Extract representations from multiple layers
+
+        # Extract representations from all layers
         print("Extracting representations from all layers...")
         all_representations = {}
-        all_labels = {
-            'deception': [],
-            'role': [],
-        }
-        
+        all_labels = {'deception': [], 'role': []}
+
         for batch in tqdm(test_data):
             input_ids = batch['input_ids'].unsqueeze(0).to(self.device)
             attention_mask = batch['attention_mask'].unsqueeze(0).to(self.device)
-            
-            # Get representations
+
             representations = analyzer.extract_representations(
-                input_ids, 
-                attention_mask=attention_mask
+                input_ids, attention_mask=attention_mask
             )
-            
             for layer_idx, reps in representations.items():
                 if layer_idx not in all_representations:
                     all_representations[layer_idx] = []
                 all_representations[layer_idx].append(reps.cpu())
-            
-            # Collect labels
+
             all_labels['deception'].append(batch.get('deception_labels', 0))
             all_labels['role'].append(batch.get('role_labels', 0))
-        
-        # Concatenate representations and cast to float32 for probes
+
         for layer_idx in all_representations:
-            all_representations[layer_idx] = torch.cat(all_representations[layer_idx], dim=0).float()
-        
-        # Convert labels to tensors
+            all_representations[layer_idx] = torch.cat(
+                all_representations[layer_idx], dim=0
+            ).float()
+
         all_labels['deception'] = torch.tensor(all_labels['deception'])
         all_labels['role'] = torch.tensor(all_labels['role'])
-        
-        # Train probes on each layer
-        print("\nTraining probes on each layer...")
-        layer_results = {}
-        
-        for layer_idx in tqdm(all_representations.keys(), desc="Layers"):
-            layer_reps = all_representations[layer_idx]
-            
-            # Train deception probe
-            deception_probe = probe_kit.create_deception_probe(layer_reps.shape[-1])
-            deception_results = deception_probe.fit(
-                layer_reps[:800], 
-                all_labels['deception'][:800],
-                device=self.device
-            )
-            
-            # Evaluate
+
+        # Shuffle and split
+        n = len(all_labels['deception'])
+        perm = torch.randperm(n)
+        split_idx = int(0.8 * n)
+        train_idx, test_idx = perm[:split_idx], perm[split_idx:]
+
+        # Shuffled labels for control baseline
+        control_labels = all_labels['deception'][torch.randperm(n)]
+
+        def eval_probe(probe, X, y):
+            probe.eval()
             with torch.no_grad():
-                preds = torch.sigmoid(deception_probe(layer_reps[800:].to(self.device)))
-                accuracy = ((preds > 0.5).float() == all_labels['deception'][800:].float().to(self.device)).float().mean()
-            
+                logits = probe(X.to(self.device)).squeeze(-1)
+                preds = (torch.sigmoid(logits) > 0.5).float()
+                acc = (preds == y.float().to(self.device)).float().mean()
+            return acc.item()
+
+        # Train probes on each layer
+        print("\nTraining probes on each layer (linear / MLP / control)...")
+        layer_results = {}
+        best_acc = 0
+        best_layer = 0
+        best_probe = None
+
+        for layer_idx in tqdm(sorted(all_representations.keys()), desc="Layers"):
+            reps = all_representations[layer_idx]
+            train_X, test_X = reps[train_idx], reps[test_idx]
+            train_y = all_labels['deception'][train_idx]
+            test_y = all_labels['deception'][test_idx]
+            input_dim = train_X.shape[-1]
+
+            # Linear probe
+            lp = LinearProbe(input_dim, 1)
+            lp.fit(train_X, train_y, device=self.device)
+            linear_acc = eval_probe(lp, test_X, test_y)
+
+            # MLP probe
+            mp = MLPProbe(input_dim, hidden_dims=[128, 64], output_dim=1)
+            mp.fit(train_X, train_y, device=self.device, epochs=200)
+            mlp_acc = eval_probe(mp, test_X, test_y)
+
+            # Control probe (shuffled labels)
+            cp = LinearProbe(input_dim, 1)
+            cp.fit(train_X, control_labels[train_idx], device=self.device)
+            control_acc = eval_probe(cp, test_X, control_labels[test_idx])
+
             layer_results[layer_idx] = {
-                'deception_accuracy': accuracy.item(),
-                'final_loss': deception_results['losses'][-1] if deception_results['losses'] else 0
+                'linear_accuracy': linear_acc,
+                'mlp_accuracy': mlp_acc,
+                'control_accuracy': control_acc,
             }
-        
-        # Find best layers for deception detection
-        best_layers = sorted(layer_results.items(), key=lambda x: x[1]['deception_accuracy'], reverse=True)[:5]
-        
-        print("\nTop 5 layers for deception detection:")
-        for layer_idx, metrics in best_layers:
-            print(f"  Layer {layer_idx}: {metrics['deception_accuracy']:.3f} accuracy")
-        
+
+            if linear_acc > best_acc:
+                best_acc = linear_acc
+                best_layer = layer_idx
+                best_probe = lp
+
+        # Store best probe for steering
+        self.best_probe = best_probe
+        self.best_probe_layer = best_layer
+
+        # Report
+        ranked = sorted(
+            layer_results.items(),
+            key=lambda x: x[1]['linear_accuracy'],
+            reverse=True,
+        )[:5]
+
+        print(f"\n  {'Layer':<8} {'Linear':<10} {'MLP':<10} {'Control':<10}")
+        for layer_idx, m in ranked:
+            print(
+                f"  {layer_idx:<8} {m['linear_accuracy']:.3f}     "
+                f"{m['mlp_accuracy']:.3f}     {m['control_accuracy']:.3f}"
+            )
+
         self.results['probe_analysis'] = {
             'layer_results': layer_results,
-            'best_layers': best_layers
+            'best_layers': ranked,
         }
-        
-        return best_layers[0][0]  # Return best layer index
+
+        return best_layer
     
     def run_sae_analysis(self, test_data, target_layer: int = -1):
         """Train SAE to find sparse deception features."""
@@ -360,65 +395,168 @@ class DeceptionAnalyzer:
             'honest_flow': avg_honest_flow
         }
     
-    def run_steering_experiments(self, test_data, sae=None, top_features=None):
-        """Test steering model behavior using discovered features."""
+    def run_steering_experiments(self, test_data):
+        """Contrastive activation steering and probe-direction steering with strength sweeps."""
         print("\n" + "="*50)
         print("STEERING EXPERIMENTS")
         print("="*50)
-        
-        from deception_interpretability.experiments.steering import FeatureSteering
-        
-        if sae is None or top_features is None:
-            print("No SAE provided, skipping feature steering...")
-            return
-        
-        feature_steering = FeatureSteering(self.model, sae, device=self.device)
-        
-        # Test steering on examples
-        test_prompts = [
-            "I was in electrical doing tasks when the body was found.",
-            "I saw Red vent in medbay!",
-            "Trust me, I'm innocent.",
-            "We should vote out Blue, they're suspicious.",
-            "I can vouch for Green, they were with me.",
+
+        best_layer = getattr(self, 'best_probe_layer', self.num_layers // 2)
+        best_probe = getattr(self, 'best_probe', None)
+
+        # Split examples by label
+        deceptive_idx = [
+            i for i in range(len(test_data)) if test_data[i]['deception_labels'] == 1
         ]
-        
-        print("Testing feature steering...")
-        steering_results = []
-        
-        for prompt in test_prompts:
-            input_ids = self.tokenizer.encode(prompt, return_tensors='pt').to(self.device)
-            
-            # Original output
+        honest_idx = [
+            i for i in range(len(test_data)) if test_data[i]['deception_labels'] == 0
+        ]
+
+        if len(deceptive_idx) < 5 or len(honest_idx) < 5:
+            print("Not enough deceptive/honest examples for steering. Skipping.")
+            return
+
+        config = SteeringConfig(
+            method='activation_addition',
+            layer_indices=[best_layer],
+            intervention_type='add',
+        )
+        act_steering = ActivationSteering(self.model, config, self.device)
+        strengths = [-3.0, -2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0, 3.0]
+
+        # --- 1. Contrastive Activation Steering ---
+        print(f"\n--- Contrastive Steering (layer {best_layer}) ---")
+
+        n_contrast = min(50, len(deceptive_idx), len(honest_idx))
+        pos_ids = torch.stack(
+            [test_data[i]['input_ids'] for i in deceptive_idx[:n_contrast]]
+        ).to(self.device)
+        neg_ids = torch.stack(
+            [test_data[i]['input_ids'] for i in honest_idx[:n_contrast]]
+        ).to(self.device)
+
+        contrastive_vector = act_steering.compute_steering_vector(
+            pos_ids, neg_ids, best_layer
+        )
+
+        # Eval on held-out examples
+        eval_idx = deceptive_idx[n_contrast:n_contrast + 20] + honest_idx[n_contrast:n_contrast + 20]
+        if len(eval_idx) < 10:
+            eval_idx = deceptive_idx[:20] + honest_idx[:20]
+
+        contrastive_results = self._steering_sweep(
+            test_data, eval_idx, best_layer, contrastive_vector, strengths,
+            act_steering, probe=best_probe,
+        )
+
+        header = f"  {'Strength':<10} {'Logit Diff':<12}"
+        if best_probe is not None:
+            header += f" {'Probe Score':<12}"
+        print(header)
+        for s in strengths:
+            r = contrastive_results[s]
+            line = f"  {s:<+10.1f} {r['logit_diff']:<12.4f}"
+            if r.get('probe_score') is not None:
+                line += f" {r['probe_score']:<12.3f}"
+            print(line)
+
+        # --- 2. Probe-Direction Steering ---
+        probe_steer_results = None
+        if best_probe is not None:
+            print(f"\n--- Probe-Direction Steering (layer {best_layer}) ---")
+
+            probe_direction = best_probe.linear.weight.squeeze(0).detach()
+            probe_direction = probe_direction / probe_direction.norm()
+
+            probe_steer_results = self._steering_sweep(
+                test_data, eval_idx, best_layer, probe_direction, strengths,
+                act_steering, probe=None,
+            )
+
+            print(f"  {'Strength':<10} {'Logit Diff':<12}")
+            for s in strengths:
+                r = probe_steer_results[s]
+                print(f"  {s:<+10.1f} {r['logit_diff']:<12.4f}")
+        else:
+            print("\nNo probe available, skipping probe-direction steering.")
+
+        # --- 3. Qualitative examples ---
+        print("\n--- Qualitative Steering Examples ---")
+        sample_idx = honest_idx[:3]
+        for i in sample_idx:
+            input_ids = test_data[i]['input_ids'].unsqueeze(0).to(self.device)
+            text = self.tokenizer.decode(input_ids[0], skip_special_tokens=True)[:100]
+            print(f"\n  Input: {text}...")
+
+            for s in [-2.0, 0.0, 2.0]:
+                output = act_steering.apply_steering(
+                    input_ids, {best_layer: contrastive_vector}, s
+                )
+                top_tokens = output.logits[0, -1].topk(5)
+                top_words = [self.tokenizer.decode(t) for t in top_tokens.indices]
+                print(f"    strength={s:+.1f}: next tokens = {top_words}")
+
+        self.results['steering_experiments'] = {
+            'contrastive_sweep': {str(k): v for k, v in contrastive_results.items()},
+            'probe_direction_sweep': (
+                {str(k): v for k, v in probe_steer_results.items()}
+                if probe_steer_results else None
+            ),
+            'steering_layer': best_layer,
+        }
+
+    def _steering_sweep(self, test_data, eval_idx, layer_idx, vector, strengths,
+                        act_steering, probe=None):
+        """Sweep steering strength, measuring logit divergence and optional probe score."""
+        eval_inputs = torch.stack(
+            [test_data[i]['input_ids'] for i in eval_idx]
+        ).to(self.device)
+
+        with torch.no_grad():
+            baseline_logits = self.model(eval_inputs).logits
+
+        layers = act_steering._get_layers()
+        results = {}
+
+        for strength in strengths:
+            captured = {}
+
+            def _make_hook(s, vec, cap):
+                def hook_fn(module, inp, output):
+                    if isinstance(output, tuple):
+                        hidden = output[0]
+                    else:
+                        hidden = output
+                    steered = hidden + s * vec.unsqueeze(0)
+                    cap['hidden'] = steered.detach()
+                    if isinstance(output, tuple):
+                        return (steered,) + output[1:]
+                    return steered
+                return hook_fn
+
+            hook = layers[layer_idx].register_forward_hook(
+                _make_hook(strength, vector, captured)
+            )
+
             with torch.no_grad():
-                orig_output = self.model.generate(input_ids, max_length=100, do_sample=True)
-                orig_text = self.tokenizer.decode(orig_output[0], skip_special_tokens=True)
-            
-            # Amplify deception features
-            amplified_output = feature_steering.steer_sae_features(
-                input_ids, 
-                top_features, 
-                amplification=2.0
-            )
-            
-            # Suppress deception features
-            suppressed_output = feature_steering.steer_sae_features(
-                input_ids,
-                top_features,
-                amplification=0.0
-            )
-            
-            steering_results.append({
-                'prompt': prompt,
-                'original': orig_text,
-                'amplified': self.tokenizer.decode(amplified_output['logits'].argmax(-1)[0]),
-                'suppressed': self.tokenizer.decode(suppressed_output['logits'].argmax(-1)[0])
-            })
-            
-            print(f"\nPrompt: {prompt}")
-            print(f"Effect: Feature steering changes model behavior")
-        
-        self.results['steering_experiments'] = steering_results
+                steered_logits = self.model(eval_inputs).logits
+
+            hook.remove()
+
+            logit_diff = (steered_logits - baseline_logits).abs().mean().item()
+            entry = {'logit_diff': logit_diff, 'probe_score': None}
+
+            if probe is not None and 'hidden' in captured:
+                pooled = captured['hidden'].mean(dim=1).float()
+                with torch.no_grad():
+                    score = torch.sigmoid(
+                        probe(pooled.to(next(probe.parameters()).device))
+                    ).mean().item()
+                entry['probe_score'] = score
+
+            results[strength] = entry
+
+        return results
     
     def run_ablation_studies(self, test_data, target_layer: int):
         """Run ablation studies to verify importance of components."""
@@ -494,30 +632,94 @@ class DeceptionAnalyzer:
     def create_visualizations(self, output_dir: str):
         """Create visualizations of analysis results."""
         import matplotlib.pyplot as plt
-        
-        # 1. Layer-wise probe accuracy
+
+        # 1. Layer-wise probe accuracy (linear / MLP / control)
         if 'probe_analysis' in self.results:
-            layers = list(self.results['probe_analysis']['layer_results'].keys())
-            accuracies = [self.results['probe_analysis']['layer_results'][l]['deception_accuracy'] 
-                         for l in layers]
-            
-            plt.figure(figsize=(10, 6))
-            plt.bar(layers, accuracies)
-            plt.xlabel('Layer')
-            plt.ylabel('Deception Detection Accuracy')
-            plt.title('Probe Accuracy by Layer')
-            plt.savefig(os.path.join(output_dir, 'probe_accuracy.png'))
+            lr = self.results['probe_analysis']['layer_results']
+            layers = sorted(lr.keys())
+
+            # Support both old and new result formats
+            has_multi = 'linear_accuracy' in lr[layers[0]]
+
+            if has_multi:
+                linear_acc = [lr[l]['linear_accuracy'] for l in layers]
+                mlp_acc = [lr[l]['mlp_accuracy'] for l in layers]
+                ctrl_acc = [lr[l]['control_accuracy'] for l in layers]
+
+                plt.figure(figsize=(12, 6))
+                plt.plot(layers, linear_acc, 'b-o', markersize=3, label='Linear probe')
+                plt.plot(layers, mlp_acc, 'g-s', markersize=3, label='MLP probe')
+                plt.plot(layers, ctrl_acc, 'r--x', markersize=3, label='Control (shuffled)')
+                plt.axhline(y=0.5, color='gray', linestyle=':', alpha=0.5, label='Chance')
+                plt.xlabel('Layer')
+                plt.ylabel('Accuracy')
+                plt.title('Deception Probe Accuracy by Layer')
+                plt.legend()
+                plt.tight_layout()
+            else:
+                accuracies = [lr[l]['deception_accuracy'] for l in layers]
+                plt.figure(figsize=(10, 6))
+                plt.bar(layers, accuracies)
+                plt.xlabel('Layer')
+                plt.ylabel('Deception Detection Accuracy')
+                plt.title('Probe Accuracy by Layer')
+
+            plt.savefig(os.path.join(output_dir, 'probe_accuracy.png'), dpi=150)
             plt.close()
-        
-        # 2. Information flow comparison
+
+        # 2. Steering strength sweep
+        if 'steering_experiments' in self.results:
+            steer = self.results['steering_experiments']
+
+            fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+            # Contrastive sweep
+            if steer.get('contrastive_sweep'):
+                cs = steer['contrastive_sweep']
+                strengths = sorted(cs.keys(), key=float)
+                logit_diffs = [cs[s]['logit_diff'] for s in strengths]
+                xs = [float(s) for s in strengths]
+
+                axes[0].plot(xs, logit_diffs, 'b-o', label='Logit diff')
+                if cs[strengths[0]].get('probe_score') is not None:
+                    probe_scores = [cs[s]['probe_score'] for s in strengths]
+                    ax2 = axes[0].twinx()
+                    ax2.plot(xs, probe_scores, 'r-s', label='Probe score')
+                    ax2.set_ylabel('Probe Score', color='r')
+                    ax2.legend(loc='upper left')
+                axes[0].set_xlabel('Steering Strength')
+                axes[0].set_ylabel('Mean |Logit Diff|', color='b')
+                axes[0].set_title('Contrastive Steering')
+                axes[0].legend(loc='upper right')
+
+            # Probe-direction sweep
+            if steer.get('probe_direction_sweep'):
+                ps = steer['probe_direction_sweep']
+                strengths = sorted(ps.keys(), key=float)
+                logit_diffs = [ps[s]['logit_diff'] for s in strengths]
+                xs = [float(s) for s in strengths]
+
+                axes[1].plot(xs, logit_diffs, 'g-o')
+                axes[1].set_xlabel('Steering Strength')
+                axes[1].set_ylabel('Mean |Logit Diff|')
+                axes[1].set_title('Probe-Direction Steering')
+            else:
+                axes[1].text(0.5, 0.5, 'No probe-direction data',
+                             ha='center', va='center', transform=axes[1].transAxes)
+
+            plt.tight_layout()
+            plt.savefig(os.path.join(output_dir, 'steering_sweep.png'), dpi=150)
+            plt.close()
+
+        # 3. Information flow comparison (unchanged)
         if 'circuit_discovery' in self.results:
             deceptive_flow = self.results['circuit_discovery']['deceptive_flow']
             honest_flow = self.results['circuit_discovery']['honest_flow']
-            
+
             layers = sorted(deceptive_flow.keys())
             dec_values = [deceptive_flow[l] for l in layers]
             hon_values = [honest_flow[l] for l in layers]
-            
+
             plt.figure(figsize=(10, 6))
             plt.plot(layers, dec_values, 'r-', label='Deceptive')
             plt.plot(layers, hon_values, 'b-', label='Honest')
@@ -525,9 +727,9 @@ class DeceptionAnalyzer:
             plt.ylabel('Information Flow')
             plt.title('Information Flow: Deceptive vs Honest')
             plt.legend()
-            plt.savefig(os.path.join(output_dir, 'information_flow.png'))
+            plt.savefig(os.path.join(output_dir, 'information_flow.png'), dpi=150)
             plt.close()
-        
+
         print("Visualizations created!")
 
 
@@ -558,7 +760,7 @@ def main():
         analyzer.run_circuit_discovery(test_data, best_layer)
     
     if args.analysis_type in ['all', 'steering']:
-        analyzer.run_steering_experiments(test_data, sae, top_features)
+        analyzer.run_steering_experiments(test_data)
     
     if args.analysis_type in ['all', 'ablation']:
         analyzer.run_ablation_studies(test_data, best_layer)
@@ -574,12 +776,21 @@ def main():
     
     if 'probe_analysis' in analyzer.results:
         best = analyzer.results['probe_analysis']['best_layers'][0]
-        print(f"  - Best layer for deception: Layer {best[0]} ({best[1]['deception_accuracy']:.1%} accuracy)")
-    
+        m = best[1]
+        if 'linear_accuracy' in m:
+            print(f"  - Best layer for deception: Layer {best[0]}")
+            print(f"    Linear: {m['linear_accuracy']:.1%}  MLP: {m['mlp_accuracy']:.1%}  Control: {m['control_accuracy']:.1%}")
+        else:
+            print(f"  - Best layer for deception: Layer {best[0]} ({m['deception_accuracy']:.1%} accuracy)")
+
+    if 'steering_experiments' in analyzer.results:
+        sl = analyzer.results['steering_experiments'].get('steering_layer', '?')
+        print(f"  - Steering experiments run at layer {sl}")
+
     if 'sae_analysis' in analyzer.results:
         n_features = len(analyzer.results['sae_analysis']['top_deception_features'])
         print(f"  - Found {n_features} features correlated with deception")
-    
+
     if 'circuit_discovery' in analyzer.results:
         n_critical = len(analyzer.results['circuit_discovery']['critical_layers'])
         print(f"  - Identified {n_critical} critical layers in deception circuit")
