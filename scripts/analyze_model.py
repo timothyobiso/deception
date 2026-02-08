@@ -72,7 +72,10 @@ class DeceptionAnalyzer:
             # Load other models
             self.model = AutoModelForCausalLM.from_pretrained(self.model_path)
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_path)
-        
+
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
         self.model.eval()
         print(f"Model loaded successfully!")
     
