@@ -30,7 +30,7 @@ def parse_args():
                        choices=['llama', 'gpt2', 'small'],
                        help='Type of model')
     parser.add_argument('--analysis_type', type=str, default='all',
-                       choices=['all', 'probes', 'sae', 'circuits', 'steering', 'ablation'],
+                       choices=['all', 'probes', 'sae', 'circuits', 'steering', 'ablation', 'probes+steering'],
                        help='What analysis to run')
     parser.add_argument('--output_dir', type=str, default='./analysis_results',
                        help='Output directory for results')
@@ -746,22 +746,22 @@ def main():
     test_data = analyzer.prepare_test_data(args.num_samples)
     
     # Run analyses based on selection
-    if args.analysis_type in ['all', 'probes']:
+    if args.analysis_type in ['all', 'probes', 'probes+steering']:
         best_layer = analyzer.run_probe_analysis(test_data)
     else:
         best_layer = -2  # Default to second-to-last layer
-    
+
     if args.analysis_type in ['all', 'sae']:
         sae, top_features = analyzer.run_sae_analysis(test_data, best_layer)
     else:
         sae, top_features = None, None
-    
+
     if args.analysis_type in ['all', 'circuits']:
         analyzer.run_circuit_discovery(test_data, best_layer)
-    
-    if args.analysis_type in ['all', 'steering']:
+
+    if args.analysis_type in ['all', 'steering', 'probes+steering']:
         analyzer.run_steering_experiments(test_data)
-    
+
     if args.analysis_type in ['all', 'ablation']:
         analyzer.run_ablation_studies(test_data, best_layer)
     

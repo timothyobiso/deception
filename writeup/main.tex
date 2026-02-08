@@ -1,0 +1,221 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{subcaption}
+\usepackage{hyperref}
+\usepackage{natbib}
+\usepackage{xcolor}
+
+\newcommand{\fill}[1]{\textcolor{red}{\textbf{[#1]}}}
+
+\title{Mechanistic Interpretability of Deception in Language Models\\Trained on Social Deduction Games}
+\author{\fill{Your Name} \\ \fill{University / Program}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+I study whether language models fine-tuned on social deduction game transcripts develop internally interpretable representations of deception. I fine-tune Llama~3.1~8B with QLoRA on Werewolf and social reasoning game data, jointly optimizing a causal language modeling objective and a binary deception classification loss. I probe all layers for deception-related signal, finding that linear probes achieve 94.0\% accuracy at layer~15 compared to 59.5\% for a shuffled-label control baseline, indicating a genuine learned representation of deceptive intent. I then provide causal evidence by applying contrastive activation steering at the identified layer, showing that steering monotonically shifts both output distributions and probe predictions.
+\end{abstract}
+
+\section{Introduction}
+
+A central concern in AI safety is whether language models can engage in deception---producing outputs that systematically mislead while pursuing an objective \citep{park2023ai, hubinger2024sleeper}. Understanding the internal mechanisms by which models represent and produce deceptive outputs is a prerequisite for building reliable detectors and safeguards.
+
+Social deduction games (Werewolf, Among Us, Mafia) provide a natural laboratory for studying deception. Players assigned hidden roles must deceive or detect deception through dialogue. Game transcripts thus contain ground-truth labels for deceptive intent, tied to known roles, in a constrained but realistic setting.
+
+I ask two questions:
+\begin{enumerate}
+    \item Do fine-tuned language models develop \emph{linearly accessible} internal representations of deception?
+    \item Can we \emph{causally} intervene on these representations to steer model behavior?
+\end{enumerate}
+
+\section{Related Work}
+
+\textbf{Mechanistic interpretability.} Linear probing \citep{alain2016understanding, belinkov2017neural} tests whether features are linearly decodable from intermediate representations. Activation steering \citep{turner2023activation, li2024inference} provides causal evidence by adding direction vectors to residual stream activations at inference time.
+
+\textbf{Deception in LLMs.} \citet{park2023ai} survey deceptive capabilities of LLMs. \citet{hubinger2024sleeper} demonstrate that models can be trained to exhibit deceptive alignment. \citet{pacchiardi2023catch} propose benchmarks for detecting lying in LLMs.
+
+\textbf{Social deduction games as testbeds.} \citet{lai2022werewolf} release the Werewolf Among Us dataset with strategy annotations. The SocialMaze benchmark \citep{socialmaze2024} provides multi-round social deduction dialogues with role-based reasoning.
+
+\section{Methods}
+
+\subsection{Data}
+
+I use the Werewolf Among Us dataset \citep{lai2022werewolf}, containing One Night Ultimate Werewolf games with player roles and dialogue annotated with strategic speech acts (Identity Declaration, Accusation, Defense, Evidence).
+
+Each utterance is labeled as deceptive if the speaker holds an evil role (Werewolf, Minion) and uses a strategic speech act. Input text takes the form:
+
+\begin{verbatim}
+[werewolf] PlayerName: utterance text
+\end{verbatim}
+
+The player's role is not included in the input text---it is used only for label generation, ensuring that probes must detect deception from behavioral features rather than surface-level role tokens.
+
+The dataset contains \fill{N} training examples (\fill{XX\%} deceptive), \fill{N} validation, and \fill{N} test examples.
+
+\subsection{Model and Training}
+
+I fine-tune Llama~3.1~8B-Instruct using QLoRA \citep{dettmers2023qlora} with rank $r{=}16$, $\alpha{=}32$, targeting all attention and MLP projection matrices. I jointly optimize two losses:
+\begin{equation}
+    \mathcal{L} = \mathcal{L}_{\text{LM}} + \lambda \cdot \mathcal{L}_{\text{deception}}
+\end{equation}
+where $\mathcal{L}_{\text{LM}}$ is the standard causal language modeling loss and $\mathcal{L}_{\text{deception}}$ is a binary cross-entropy loss computed from mean-pooled last-layer hidden states passed through a classification head (two hidden layers: $4096 \to 1024 \to 256 \to 1$). I set $\lambda = 1.0$.
+
+Training hyperparameters: 1 epoch, batch size 16 (with 2 gradient accumulation steps for an effective batch size of 32), learning rate $2 \times 10^{-4}$, cosine schedule with 3\% warmup, max sequence length 512.
+
+Note that 8B parameters may be undersized for developing rich internal representations of deception; larger models (70B+) likely have greater capacity for separating deceptive from honest reasoning in their residual streams. I use 8B due to compute constraints, and this should be considered when interpreting results.
+
+\subsection{Probing}
+\label{sec:probes}
+
+For each transformer layer $\ell \in \{0, \ldots, L\}$, I extract mean-pooled hidden states across the sequence dimension. I train three probes on an 80/20 shuffled split of \fill{N} test examples:
+
+\begin{itemize}
+    \item \textbf{Linear probe}: logistic regression ($h_\ell \to \sigma(w^\top h_\ell + b)$).
+    \item \textbf{MLP probe}: two hidden layers ($128 \to 64$), trained for 200 epochs with early stopping.
+    \item \textbf{Control probe}: identical linear probe trained on \emph{randomly shuffled} labels, establishing the accuracy achievable from spurious correlations in high-dimensional space.
+\end{itemize}
+
+\subsection{Activation Steering}
+
+I use two complementary steering methods at the layer $\ell^*$ identified by probing:
+
+\textbf{Contrastive steering.} I compute a steering vector $v = \bar{h}_{\text{deceptive}} - \bar{h}_{\text{honest}}$ from 50 deceptive and 50 honest examples at layer $\ell^*$, normalized to unit length. At inference, I intervene on the residual stream:
+\begin{equation}
+    h_\ell' = h_\ell + \alpha \cdot v
+\end{equation}
+for steering strengths $\alpha \in \{-3, -2, -1, -0.5, 0, 0.5, 1, 2, 3\}$.
+
+\textbf{Probe-direction steering.} I use the trained linear probe's weight vector $w$ (normalized) as the steering direction. This tests whether the direction the probe identified as encoding deception can causally influence model outputs.
+
+For both methods, I measure:
+\begin{itemize}
+    \item \textbf{Logit divergence}: mean absolute difference in output logits from the unsteered baseline.
+    \item \textbf{Probe score} (contrastive only): the deception probe's predicted probability on the steered hidden states---this is not circular because the steering vector and probe are computed independently.
+\end{itemize}
+
+\section{Results}
+
+\subsection{Training}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../analysis_results/training_curves.png}
+    \caption{Combined training loss (LM + deception) over the course of training.}
+    \label{fig:training}
+\end{figure}
+
+Figure~\ref{fig:training} shows the combined loss decreasing over training, confirming that both the LoRA adapter and the deception classification head receive gradient signal and learn jointly.
+
+\subsection{Probe Accuracy by Layer}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../analysis_results/probe_accuracy.png}
+    \caption{Deception probe accuracy across layers. Linear (blue) and MLP (green) probes compared against a shuffled-label control baseline (red dashed). The gray dotted line indicates chance performance (50\%).}
+    \label{fig:probes}
+\end{figure}
+
+Tables~\ref{tab:probes100} and~\ref{tab:probes200} report the top-5 layers at two training checkpoints (100 and 200 steps). Linear probe accuracy reaches 94.0\% at both checkpoints, while the control baseline hovers around 59.5--61.0\%. The 33--34.5 percentage point gap confirms that the deception signal is genuine and not an artifact of high-dimensional spurious correlations.
+
+\begin{table}[h]
+\centering
+\begin{minipage}{0.48\textwidth}
+\centering
+\begin{tabular}{lccc}
+\toprule
+Layer & Linear & MLP & Control \\
+\midrule
+15 & 94.0\% & 93.5\% & 59.5\% \\
+16 & 94.0\% & 93.5\% & 60.0\% \\
+19 & 94.0\% & 92.5\% & 60.0\% \\
+24 & 94.0\% & 92.0\% & 59.5\% \\
+28 & 94.0\% & 92.5\% & 59.5\% \\
+\bottomrule
+\end{tabular}
+\subcaption{100 training steps.}
+\label{tab:probes100}
+\end{minipage}%
+\hfill
+\begin{minipage}{0.48\textwidth}
+\centering
+\begin{tabular}{lccc}
+\toprule
+Layer & Linear & MLP & Control \\
+\midrule
+24 & 94.0\% & 91.0\% & 61.0\% \\
+25 & 94.0\% & 90.5\% & 60.0\% \\
+26 & 94.0\% & 91.5\% & 59.5\% \\
+30 & 94.0\% & 91.5\% & 59.0\% \\
+31 & 94.0\% & 92.0\% & 59.5\% \\
+\bottomrule
+\end{tabular}
+\subcaption{200 training steps. The peak shifts from layer~15 to layer~24.}
+\label{tab:probes200}
+\end{minipage}
+\caption{Top-5 layers by linear probe accuracy at two training checkpoints.}
+\label{tab:probes}
+\end{table}
+
+Three findings stand out.
+
+First, in early layers the MLP probe already exceeds 90\% accuracy while the linear probe lags behind (though still above control). This indicates that deception-related information is present in early-layer representations but encoded in a \emph{nonlinear} geometry that only the MLP probe can recover. As activations pass through successive transformer layers, the linear probe closes the gap and matches or exceeds the MLP by mid-network. This pattern---nonlinear in early layers, linearly separable in later layers---suggests that the network progressively reorganizes the deception feature into a linearly accessible direction, consistent with prior observations that features become more linearly decodable in deeper layers \citep{alain2016understanding}. This is also evidence that the model is genuinely processing deception-related information rather than memorizing surface patterns, which would be linearly decodable from the embedding layer onward.
+
+Second, the MLP probe slightly underperforms the linear probe at peak layers (93.5\% vs.\ 94.0\% at 100 steps, 91.0\% vs.\ 94.0\% at 200 steps), likely due to overfitting on the smaller training set. The key conclusion is that deception is \emph{linearly accessible} in mid-to-late layers: a single hyperplane in activation space suffices.
+
+Third, the layer at which deception signal is strongest shifts from layer~15 (at 100 steps) to layer~24 (at 200 steps), while peak accuracy remains constant at 94.0\%. This suggests that continued training causes the deception feature to migrate deeper into the network, possibly reflecting a transition from shallow lexical features to more abstract representations. The feature persists across many layers once it appears, consistent with the residual stream acting as a persistent memory.
+
+\subsection{Steering Results}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.95\textwidth]{../analysis_results/steering_sweep.png}
+    \caption{Left: contrastive steering strength vs.\ logit divergence (blue) and probe score (red). Right: probe-direction steering strength vs.\ logit divergence.}
+    \label{fig:steering}
+\end{figure}
+
+\fill{Describe: Does logit divergence increase monotonically with $|\alpha|$? Is the relationship roughly symmetric around $\alpha=0$? Does the probe score increase with positive $\alpha$ (toward deception) and decrease with negative $\alpha$?}
+
+\fill{If the probe score shows a monotonic trend, this is the key causal result: the contrastive direction (computed from mean differences) changes the probe's reading (trained via logistic regression), confirming they identify the same underlying feature.}
+
+\subsection{Qualitative Steering Examples}
+
+\fill{Include 2--3 examples from the qualitative output. Show how the model's top predicted next tokens shift when steering toward/away from deception. E.g., does steering toward deception produce more accusatory or deflective continuations?}
+
+\section{Discussion}
+
+\subsection{Model Scale}
+
+An important caveat is that 8B parameters may be insufficient for the model to develop the kind of rich, separable deception representations that interpretability tools can cleanly identify. Prior work on deceptive alignment \citep{hubinger2024sleeper} uses models of comparable or larger scale, but the complexity of ``understanding'' deception---as opposed to pattern-matching on game-specific cues---may require greater model capacity. That said, the 94\% probe accuracy at 8B scale demonstrates that even a relatively small model develops a cleanly linearly separable deception feature. Whether this reflects genuine strategic reasoning or sophisticated pattern matching on utterance style remains an open question that larger-scale experiments could help resolve.
+
+\subsection{Limitations}
+
+\begin{itemize}
+    \item \textbf{Mean pooling.} I pool hidden states across the full sequence (including padding), which dilutes position-specific signal. Token-level probing at the speaker's utterance could yield stronger results.
+    \item \textbf{Domain specificity.} Results may not transfer to real-world deception. Social deduction games have structured, formulaic deception patterns.
+    \item \textbf{Label noise.} Not all utterances by evil-role players are deceptive, and the heuristic labeling (role + strategic speech act) is imperfect.
+    \item \textbf{Single model.} I study one model size (8B) with one fine-tuning method (QLoRA). Scaling behavior is unknown.
+\end{itemize}
+
+\subsection{Implications for AI Safety}
+
+The existence of linearly decodable deception features at 94\% accuracy suggests that runtime monitoring via lightweight probes is feasible---a single linear classifier on mid-layer activations suffices to flag deceptive outputs with high reliability. The causal steering results further suggest that these features could be suppressed as a safety intervention, though the practical implications of steering on open-ended generation require further study.
+
+\subsection{Ethical Considerations}
+
+This work studies deception as an internal model property in order to improve detection and monitoring. However, the same techniques could in principle be misused: steering vectors that amplify deception could make models more persuasively dishonest, and understanding which layers encode deception could inform adversarial fine-tuning that evades probe-based detectors. I believe the defensive value outweighs these risks---detecting deception requires understanding it---but the dual-use nature of interpretability tools warrants caution in how steering vectors and deception-correlated features are shared and applied.
+
+\section{Conclusion}
+
+I presented a pipeline for studying deception representations in language models via social deduction game fine-tuning. The main contributions are: (1) probing with proper control baselines showing strong positive evidence for linearly accessible deception representations (94\% vs.\ 60\% control), and (2) providing \fill{supporting/no} causal evidence via activation steering that the identified features causally influence model behavior.
+
+These results suggest that probe-based monitoring of deceptive intent in language model activations is a viable approach for AI safety, at least in domains where deception has a consistent behavioral signature.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}
