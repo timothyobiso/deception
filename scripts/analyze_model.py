@@ -53,6 +53,14 @@ class DeceptionAnalyzer:
         self.model = None
         self.tokenizer = None
         self.results = {}
+
+    @property
+    def num_layers(self) -> int:
+        """Get number of transformer layers regardless of model architecture."""
+        config = getattr(self.model, 'config', None)
+        if config is None:
+            config = self.model.base_model.config
+        return getattr(config, 'num_hidden_layers', 32)
         
     def load_model(self):
         """Load trained model and tokenizer."""
@@ -258,9 +266,13 @@ class DeceptionAnalyzer:
         # Compute correlation with deception labels
         deception_correlations = []
         for feat_idx in range(all_features.shape[-1]):
-            feat_activations = all_features[:, feat_idx]
-            correlation = np.corrcoef(feat_activations.numpy(), deception_labels.numpy())[0, 1]
-            deception_correlations.append((feat_idx, abs(correlation)))
+            feat_activations = all_features[:, feat_idx].float().numpy()
+            labels_np = deception_labels.float().numpy()
+            if feat_activations.std() == 0 or labels_np.std() == 0:
+                deception_correlations.append((feat_idx, 0.0))
+            else:
+                correlation = np.corrcoef(feat_activations, labels_np)[0, 1]
+                deception_correlations.append((feat_idx, abs(correlation)))
         
         # Get top deception features
         top_features = sorted(deception_correlations, key=lambda x: x[1], reverse=True)[:10]
@@ -301,7 +313,7 @@ class DeceptionAnalyzer:
             
             # Trace from middle to final layers
             start_layer = max(0, target_layer - 5)
-            end_layer = min(target_layer + 5, len(self.model.transformer.h) - 1)
+            end_layer = min(target_layer + 5, self.num_layers - 1)
             
             flow = pathway_analyzer.trace_information_flow(
                 input_ids, start_layer, end_layer
@@ -424,7 +436,8 @@ class DeceptionAnalyzer:
         # Test ablating different attention heads
         print("Testing attention head ablations...")
         
-        num_heads = 32  # For Llama 8B
+        config = getattr(self.model, 'config', self.model.base_model.config)
+        num_heads = getattr(config, 'num_attention_heads', 32)
         head_importance = {}
         
         for head_idx in tqdm(range(num_heads), desc="Heads"):
