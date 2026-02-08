@@ -143,9 +143,9 @@ class DeceptionAnalyzer:
             all_labels['deception'].append(batch.get('deception_labels', 0))
             all_labels['role'].append(batch.get('role_labels', 0))
         
-        # Concatenate representations
+        # Concatenate representations and cast to float32 for probes
         for layer_idx in all_representations:
-            all_representations[layer_idx] = torch.cat(all_representations[layer_idx], dim=0)
+            all_representations[layer_idx] = torch.cat(all_representations[layer_idx], dim=0).float()
         
         # Convert labels to tensors
         all_labels['deception'] = torch.tensor(all_labels['deception'])
