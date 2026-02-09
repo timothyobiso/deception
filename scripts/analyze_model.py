@@ -427,23 +427,44 @@ class DeceptionAnalyzer:
         # --- 1. Contrastive Activation Steering ---
         print(f"\n--- Contrastive Steering (layer {best_layer}) ---")
 
-        n_contrast = min(50, len(deceptive_idx), len(honest_idx))
-        pos_ids = torch.stack(
-            [test_data[i]['input_ids'] for i in deceptive_idx[:n_contrast]]
-        ).to(self.device)
-        neg_ids = torch.stack(
-            [test_data[i]['input_ids'] for i in honest_idx[:n_contrast]]
-        ).to(self.device)
+        n_contrast = min(20, len(deceptive_idx), len(honest_idx))
 
+        # Compute contrastive vector in small batches to avoid OOM
         print("Computing contrastive vector...")
-        contrastive_vector = act_steering.compute_steering_vector(
-            pos_ids, neg_ids, best_layer
-        )
+        layers = act_steering._get_layers()
+        batch_size = 4
+        pos_acts = []
+        neg_acts = []
+        for start in tqdm(range(0, n_contrast, batch_size), desc="Contrastive batches"):
+            end = min(start + batch_size, n_contrast)
+            pos_batch = torch.stack(
+                [test_data[i]['input_ids'] for i in deceptive_idx[start:end]]
+            ).to(self.device)
+            neg_batch = torch.stack(
+                [test_data[i]['input_ids'] for i in honest_idx[start:end]]
+            ).to(self.device)
+
+            def _extract_hook(batch_input, storage):
+                acts = []
+                def hook_fn(module, inp, output):
+                    acts.append(output[0].detach())
+                hook = layers[best_layer].register_forward_hook(hook_fn)
+                with torch.no_grad():
+                    self.model(batch_input)
+                hook.remove()
+                storage.append(acts[0].mean(dim=(0, 1)))  # mean over batch and seq
+
+            _extract_hook(pos_batch, pos_acts)
+            _extract_hook(neg_batch, neg_acts)
+
+        contrastive_vector = torch.stack(pos_acts).mean(0) - torch.stack(neg_acts).mean(0)
+        contrastive_vector = contrastive_vector / contrastive_vector.norm()
 
         # Eval on held-out examples
-        eval_idx = deceptive_idx[n_contrast:n_contrast + 20] + honest_idx[n_contrast:n_contrast + 20]
+        n_eval = 10
+        eval_idx = deceptive_idx[n_contrast:n_contrast + n_eval] + honest_idx[n_contrast:n_contrast + n_eval]
         if len(eval_idx) < 10:
-            eval_idx = deceptive_idx[:20] + honest_idx[:20]
+            eval_idx = deceptive_idx[:n_eval] + honest_idx[:n_eval]
 
         contrastive_results = self._steering_sweep(
             test_data, eval_idx, best_layer, contrastive_vector, strengths,
@@ -509,46 +530,64 @@ class DeceptionAnalyzer:
     def _steering_sweep(self, test_data, eval_idx, layer_idx, vector, strengths,
                         act_steering, probe=None):
         """Sweep steering strength, measuring logit divergence and optional probe score."""
-        eval_inputs = torch.stack(
-            [test_data[i]['input_ids'] for i in eval_idx]
-        ).to(self.device)
-
-        with torch.no_grad():
-            baseline_logits = self.model(eval_inputs).logits
-
+        batch_size = 4
         layers = act_steering._get_layers()
+
+        # Compute baseline logits in batches
+        print("  Computing baseline logits...")
+        baseline_logits_list = []
+        for start in range(0, len(eval_idx), batch_size):
+            end = min(start + batch_size, len(eval_idx))
+            batch = torch.stack(
+                [test_data[i]['input_ids'] for i in eval_idx[start:end]]
+            ).to(self.device)
+            with torch.no_grad():
+                baseline_logits_list.append(self.model(batch).logits.cpu())
+        baseline_logits = torch.cat(baseline_logits_list, dim=0)
+
         results = {}
 
         for strength in tqdm(strengths, desc="Steering strengths"):
-            captured = {}
+            all_steered_logits = []
+            all_hidden = []
 
-            def _make_hook(s, vec, cap):
+            def _make_hook(s, vec, cap_list):
                 def hook_fn(module, inp, output):
                     if isinstance(output, tuple):
                         hidden = output[0]
                     else:
                         hidden = output
                     steered = hidden + s * vec.unsqueeze(0)
-                    cap['hidden'] = steered.detach()
+                    cap_list.append(steered.detach().cpu())
                     if isinstance(output, tuple):
                         return (steered,) + output[1:]
                     return steered
                 return hook_fn
 
-            hook = layers[layer_idx].register_forward_hook(
-                _make_hook(strength, vector, captured)
-            )
+            for start in range(0, len(eval_idx), batch_size):
+                end = min(start + batch_size, len(eval_idx))
+                batch = torch.stack(
+                    [test_data[i]['input_ids'] for i in eval_idx[start:end]]
+                ).to(self.device)
 
-            with torch.no_grad():
-                steered_logits = self.model(eval_inputs).logits
+                captured_hidden = []
+                hook = layers[layer_idx].register_forward_hook(
+                    _make_hook(strength, vector, captured_hidden)
+                )
+                with torch.no_grad():
+                    steered_out = self.model(batch).logits.cpu()
+                hook.remove()
 
-            hook.remove()
+                all_steered_logits.append(steered_out)
+                if captured_hidden:
+                    all_hidden.append(captured_hidden[-1])
 
+            steered_logits = torch.cat(all_steered_logits, dim=0)
             logit_diff = (steered_logits - baseline_logits).abs().mean().item()
             entry = {'logit_diff': logit_diff, 'probe_score': None}
 
-            if probe is not None and 'hidden' in captured:
-                pooled = captured['hidden'].mean(dim=1).float()
+            if probe is not None and all_hidden:
+                pooled = torch.cat(all_hidden, dim=0).mean(dim=1).float()
                 with torch.no_grad():
                     score = torch.sigmoid(
                         probe(pooled.to(next(probe.parameters()).device))
