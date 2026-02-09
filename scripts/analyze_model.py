@@ -435,6 +435,7 @@ class DeceptionAnalyzer:
             [test_data[i]['input_ids'] for i in honest_idx[:n_contrast]]
         ).to(self.device)
 
+        print("Computing contrastive vector...")
         contrastive_vector = act_steering.compute_steering_vector(
             pos_ids, neg_ids, best_layer
         )
@@ -483,10 +484,10 @@ class DeceptionAnalyzer:
         # --- 3. Qualitative examples ---
         print("\n--- Qualitative Steering Examples ---")
         sample_idx = honest_idx[:3]
-        for i in sample_idx:
+        for idx_num, i in enumerate(sample_idx):
             input_ids = test_data[i]['input_ids'].unsqueeze(0).to(self.device)
             text = self.tokenizer.decode(input_ids[0], skip_special_tokens=True)[:100]
-            print(f"\n  Input: {text}...")
+            print(f"\n  Example {idx_num+1}/3: {text}...")
 
             for s in [-2.0, 0.0, 2.0]:
                 output = act_steering.apply_steering(
@@ -518,7 +519,7 @@ class DeceptionAnalyzer:
         layers = act_steering._get_layers()
         results = {}
 
-        for strength in strengths:
+        for strength in tqdm(strengths, desc="Steering strengths"):
             captured = {}
 
             def _make_hook(s, vec, cap):

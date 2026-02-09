@@ -18,7 +18,7 @@
 \maketitle
 
 \begin{abstract}
-I study whether language models fine-tuned on social deduction game transcripts develop internally interpretable representations of deception. I fine-tune Llama~3.1~8B with QLoRA on Werewolf and social reasoning game data, jointly optimizing a causal language modeling objective and a binary deception classification loss. I probe all layers for deception-related signal, finding that linear probes achieve 94.0\% accuracy at layer~15 compared to 59.5\% for a shuffled-label control baseline, indicating a genuine learned representation of deceptive intent. I then provide causal evidence by applying contrastive activation steering at the identified layer, showing that steering monotonically shifts both output distributions and probe predictions.
+I study whether language models fine-tuned on social deduction game transcripts develop internally interpretable representations of deception. I fine-tune Llama~3.1~8B with QLoRA on Werewolf and social reasoning game data, jointly optimizing a causal language modeling objective and a binary deception classification loss. I probe all layers for deception-related signal, finding that linear probes achieve up to 97.0\% accuracy compared to 56.5\% for a shuffled-label control baseline, indicating a genuine learned representation of deceptive intent. I then provide causal evidence by applying contrastive activation steering at the identified layer, showing that steering monotonically shifts both output distributions and probe predictions.
 \end{abstract}
 
 \section{Introduction}
@@ -120,44 +120,61 @@ Figure~\ref{fig:training} shows the combined loss decreasing over training, conf
     \label{fig:probes}
 \end{figure}
 
-Tables~\ref{tab:probes100} and~\ref{tab:probes200} report the top-5 layers at two training checkpoints (100 and 200 steps). Linear probe accuracy reaches 94.0\% at both checkpoints, while the control baseline hovers around 59.5--61.0\%. The 33--34.5 percentage point gap confirms that the deception signal is genuine and not an artifact of high-dimensional spurious correlations.
+Tables~\ref{tab:probes100}--\ref{tab:probes300} report the top-5 layers at three training checkpoints (100, 200, and 300 steps). Linear probe accuracy rises from 94.0\% at early checkpoints to 97.0\% at 300 steps, while the control baseline remains around 56.5--61.0\%. The 34--40.5 percentage point gap confirms that the deception signal is genuine and not an artifact of high-dimensional spurious correlations.
 
 \begin{table}[h]
 \centering
-\begin{minipage}{0.48\textwidth}
+\begin{minipage}{0.32\textwidth}
 \centering
 \begin{tabular}{lccc}
 \toprule
-Layer & Linear & MLP & Control \\
+Layer & Lin & MLP & Ctrl \\
 \midrule
-15 & 94.0\% & 93.5\% & 59.5\% \\
-16 & 94.0\% & 93.5\% & 60.0\% \\
-19 & 94.0\% & 92.5\% & 60.0\% \\
-24 & 94.0\% & 92.0\% & 59.5\% \\
-28 & 94.0\% & 92.5\% & 59.5\% \\
+15 & 94.0 & 93.5 & 59.5 \\
+16 & 94.0 & 93.5 & 60.0 \\
+19 & 94.0 & 92.5 & 60.0 \\
+24 & 94.0 & 92.0 & 59.5 \\
+28 & 94.0 & 92.5 & 59.5 \\
 \bottomrule
 \end{tabular}
-\subcaption{100 training steps.}
+\subcaption{100 steps.}
 \label{tab:probes100}
 \end{minipage}%
 \hfill
-\begin{minipage}{0.48\textwidth}
+\begin{minipage}{0.32\textwidth}
 \centering
 \begin{tabular}{lccc}
 \toprule
-Layer & Linear & MLP & Control \\
+Layer & Lin & MLP & Ctrl \\
 \midrule
-24 & 94.0\% & 91.0\% & 61.0\% \\
-25 & 94.0\% & 90.5\% & 60.0\% \\
-26 & 94.0\% & 91.5\% & 59.5\% \\
-30 & 94.0\% & 91.5\% & 59.0\% \\
-31 & 94.0\% & 92.0\% & 59.5\% \\
+24 & 94.0 & 91.0 & 61.0 \\
+25 & 94.0 & 90.5 & 60.0 \\
+26 & 94.0 & 91.5 & 59.5 \\
+30 & 94.0 & 91.5 & 59.0 \\
+31 & 94.0 & 92.0 & 59.5 \\
 \bottomrule
 \end{tabular}
-\subcaption{200 training steps. The peak shifts from layer~15 to layer~24.}
+\subcaption{200 steps.}
 \label{tab:probes200}
+\end{minipage}%
+\hfill
+\begin{minipage}{0.32\textwidth}
+\centering
+\begin{tabular}{lccc}
+\toprule
+Layer & Lin & MLP & Ctrl \\
+\midrule
+5 & 97.0 & 95.0 & 56.5 \\
+6 & 97.0 & 95.0 & 56.5 \\
+7 & 97.0 & 96.0 & 56.5 \\
+8 & 97.0 & 96.0 & 56.0 \\
+9 & 97.0 & 96.0 & 57.0 \\
+\bottomrule
+\end{tabular}
+\subcaption{300 steps.}
+\label{tab:probes300}
 \end{minipage}
-\caption{Top-5 layers by linear probe accuracy at two training checkpoints.}
+\caption{Top-5 layers by linear probe accuracy (\%) at three training checkpoints.}
 \label{tab:probes}
 \end{table}
 
@@ -165,9 +182,9 @@ Three findings stand out.
 
 First, in early layers the MLP probe already exceeds 90\% accuracy while the linear probe lags behind (though still above control). This indicates that deception-related information is present in early-layer representations but encoded in a \emph{nonlinear} geometry that only the MLP probe can recover. As activations pass through successive transformer layers, the linear probe closes the gap and matches or exceeds the MLP by mid-network. This pattern---nonlinear in early layers, linearly separable in later layers---suggests that the network progressively reorganizes the deception feature into a linearly accessible direction, consistent with prior observations that features become more linearly decodable in deeper layers \citep{alain2016understanding}. This is also evidence that the model is genuinely processing deception-related information rather than memorizing surface patterns, which would be linearly decodable from the embedding layer onward.
 
-Second, the MLP probe slightly underperforms the linear probe at peak layers (93.5\% vs.\ 94.0\% at 100 steps, 91.0\% vs.\ 94.0\% at 200 steps), likely due to overfitting on the smaller training set. The key conclusion is that deception is \emph{linearly accessible} in mid-to-late layers: a single hyperplane in activation space suffices.
+Second, the MLP probe slightly underperforms the linear probe at peak layers (93.5\% vs.\ 94.0\% at 100 steps, 95.0\% vs.\ 97.0\% at 300 steps), likely due to overfitting on the smaller training set. The key conclusion is that deception is \emph{linearly accessible}: a single hyperplane in activation space suffices.
 
-Third, the layer at which deception signal is strongest shifts from layer~15 (at 100 steps) to layer~24 (at 200 steps), while peak accuracy remains constant at 94.0\%. This suggests that continued training causes the deception feature to migrate deeper into the network, possibly reflecting a transition from shallow lexical features to more abstract representations. The feature persists across many layers once it appears, consistent with the residual stream acting as a persistent memory.
+Third, the peak layer follows a non-monotonic trajectory across training: layer~15 at 100 steps, layer~24 at 200 steps, then layer~5 at 300 steps, while accuracy monotonically increases (94.0\% $\to$ 94.0\% $\to$ 97.0\%). The initial deepening from layer~15 to layer~24 may reflect a transition from shallow lexical features to more abstract representations. The subsequent shift back to early layers at 300 steps, accompanied by a 3-point accuracy increase, suggests that as training progresses, the model consolidates the deception feature into a strong, early representation---perhaps embedding deception-relevant information directly into the residual stream at early layers rather than requiring progressive computation across many layers. This is consistent with the ``residual stream as memory'' view: once a feature is well-learned, it can be written early and read at any subsequent layer.
 
 \subsection{Steering Results}
 
@@ -190,7 +207,7 @@ Third, the layer at which deception signal is strongest shifts from layer~15 (at
 
 \subsection{Model Scale}
 
-An important caveat is that 8B parameters may be insufficient for the model to develop the kind of rich, separable deception representations that interpretability tools can cleanly identify. Prior work on deceptive alignment \citep{hubinger2024sleeper} uses models of comparable or larger scale, but the complexity of ``understanding'' deception---as opposed to pattern-matching on game-specific cues---may require greater model capacity. That said, the 94\% probe accuracy at 8B scale demonstrates that even a relatively small model develops a cleanly linearly separable deception feature. Whether this reflects genuine strategic reasoning or sophisticated pattern matching on utterance style remains an open question that larger-scale experiments could help resolve.
+An important caveat is that 8B parameters may be insufficient for the model to develop the kind of rich, separable deception representations that interpretability tools can cleanly identify. Prior work on deceptive alignment \citep{hubinger2024sleeper} uses models of comparable or larger scale, but the complexity of ``understanding'' deception---as opposed to pattern-matching on game-specific cues---may require greater model capacity. That said, the 97\% probe accuracy at 8B scale demonstrates that even a relatively small model develops a cleanly linearly separable deception feature. Whether this reflects genuine strategic reasoning or sophisticated pattern matching on utterance style remains an open question that larger-scale experiments could help resolve.
 
 \subsection{Limitations}
 
@@ -203,7 +220,7 @@ An important caveat is that 8B parameters may be insufficient for the model to d
 
 \subsection{Implications for AI Safety}
 
-The existence of linearly decodable deception features at 94\% accuracy suggests that runtime monitoring via lightweight probes is feasible---a single linear classifier on mid-layer activations suffices to flag deceptive outputs with high reliability. The causal steering results further suggest that these features could be suppressed as a safety intervention, though the practical implications of steering on open-ended generation require further study.
+The existence of linearly decodable deception features at 97\% accuracy suggests that runtime monitoring via lightweight probes is feasible---a single linear classifier on mid-layer activations suffices to flag deceptive outputs with high reliability. The causal steering results further suggest that these features could be suppressed as a safety intervention, though the practical implications of steering on open-ended generation require further study.
 
 \subsection{Ethical Considerations}
 
@@ -211,7 +228,7 @@ This work studies deception as an internal model property in order to improve de
 
 \section{Conclusion}
 
-I presented a pipeline for studying deception representations in language models via social deduction game fine-tuning. The main contributions are: (1) probing with proper control baselines showing strong positive evidence for linearly accessible deception representations (94\% vs.\ 60\% control), and (2) providing \fill{supporting/no} causal evidence via activation steering that the identified features causally influence model behavior.
+I presented a pipeline for studying deception representations in language models via social deduction game fine-tuning. The main contributions are: (1) probing with proper control baselines showing strong positive evidence for linearly accessible deception representations (97\% vs.\ 57\% control), and (2) providing \fill{supporting/no} causal evidence via activation steering that the identified features causally influence model behavior.
 
 These results suggest that probe-based monitoring of deceptive intent in language model activations is a viable approach for AI safety, at least in domains where deception has a consistent behavioral signature.
 
