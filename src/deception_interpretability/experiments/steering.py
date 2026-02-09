@@ -37,9 +37,17 @@ class ActivationSteering:
 
     def _get_layers(self):
         base = self.model
+        seen = set()
         while hasattr(base, 'base_model'):
+            if id(base) in seen:
+                break
+            seen.add(id(base))
             base = base.base_model
+        seen = set()
         while hasattr(base, 'model') and base is not base.model:
+            if id(base) in seen:
+                break
+            seen.add(id(base))
             base = base.model
         if hasattr(base, 'model') and hasattr(base.model, 'layers'):
             return base.model.layers
@@ -182,9 +190,17 @@ class FeatureSteering:
 
     def _get_layers(self):
         base = self.model
+        seen = set()
         while hasattr(base, 'base_model'):
+            if id(base) in seen:
+                break
+            seen.add(id(base))
             base = base.base_model
+        seen = set()
         while hasattr(base, 'model') and base is not base.model:
+            if id(base) in seen:
+                break
+            seen.add(id(base))
             base = base.model
         if hasattr(base, 'model') and hasattr(base.model, 'layers'):
             return base.model.layers
