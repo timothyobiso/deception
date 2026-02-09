@@ -1,0 +1,292 @@
+{
+  "probe_analysis": {
+    "layer_results": {
+      "0": {
+        "linear_accuracy": 0.5450000166893005,
+        "mlp_accuracy": 0.9449999928474426,
+        "control_accuracy": 0.5550000071525574
+      },
+      "1": {
+        "linear_accuracy": 0.875,
+        "mlp_accuracy": 0.9449999928474426,
+        "control_accuracy": 0.5550000071525574
+      },
+      "2": {
+        "linear_accuracy": 0.8999999761581421,
+        "mlp_accuracy": 0.9449999928474426,
+        "control_accuracy": 0.5550000071525574
+      },
+      "3": {
+        "linear_accuracy": 0.9350000023841858,
+        "mlp_accuracy": 0.9449999928474426,
+        "control_accuracy": 0.5450000166893005
+      },
+      "4": {
+        "linear_accuracy": 0.9350000023841858,
+        "mlp_accuracy": 0.9449999928474426,
+        "control_accuracy": 0.5450000166893005
+      },
+      "5": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.9350000023841858,
+        "control_accuracy": 0.5550000071525574
+      },
+      "6": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.9449999928474426,
+        "control_accuracy": 0.5600000023841858
+      },
+      "7": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.9399999976158142,
+        "control_accuracy": 0.5649999976158142
+      },
+      "8": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.9399999976158142,
+        "control_accuracy": 0.5550000071525574
+      },
+      "9": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.9350000023841858,
+        "control_accuracy": 0.5600000023841858
+      },
+      "10": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.949999988079071,
+        "control_accuracy": 0.5799999833106995
+      },
+      "11": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.9449999928474426,
+        "control_accuracy": 0.5649999976158142
+      },
+      "12": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.9399999976158142,
+        "control_accuracy": 0.5649999976158142
+      },
+      "13": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.9399999976158142,
+        "control_accuracy": 0.5600000023841858
+      },
+      "14": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.9300000071525574,
+        "control_accuracy": 0.5550000071525574
+      },
+      "15": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.949999988079071,
+        "control_accuracy": 0.550000011920929
+      },
+      "16": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.949999988079071,
+        "control_accuracy": 0.5600000023841858
+      },
+      "17": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.9549999833106995,
+        "control_accuracy": 0.5649999976158142
+      },
+      "18": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.9549999833106995,
+        "control_accuracy": 0.5600000023841858
+      },
+      "19": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.9549999833106995,
+        "control_accuracy": 0.5550000071525574
+      },
+      "20": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.949999988079071,
+        "control_accuracy": 0.5550000071525574
+      },
+      "21": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.9449999928474426,
+        "control_accuracy": 0.5299999713897705
+      },
+      "22": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.949999988079071,
+        "control_accuracy": 0.5450000166893005
+      },
+      "23": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.9549999833106995,
+        "control_accuracy": 0.5550000071525574
+      },
+      "24": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.9549999833106995,
+        "control_accuracy": 0.5550000071525574
+      },
+      "25": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.9449999928474426,
+        "control_accuracy": 0.5600000023841858
+      },
+      "26": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.9449999928474426,
+        "control_accuracy": 0.5349999666213989
+      },
+      "27": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.949999988079071,
+        "control_accuracy": 0.550000011920929
+      },
+      "28": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.9549999833106995,
+        "control_accuracy": 0.5399999618530273
+      },
+      "29": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.949999988079071,
+        "control_accuracy": 0.5399999618530273
+      },
+      "30": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.949999988079071,
+        "control_accuracy": 0.5600000023841858
+      },
+      "31": {
+        "linear_accuracy": 0.9449999928474426,
+        "mlp_accuracy": 0.9350000023841858,
+        "control_accuracy": 0.5299999713897705
+      },
+      "32": {
+        "linear_accuracy": 0.949999988079071,
+        "mlp_accuracy": 0.9449999928474426,
+        "control_accuracy": 0.5149999856948853
+      }
+    },
+    "best_layers": [
+      [
+        32,
+        {
+          "linear_accuracy": 0.949999988079071,
+          "mlp_accuracy": 0.9449999928474426,
+          "control_accuracy": 0.5149999856948853
+        }
+      ],
+      [
+        5,
+        {
+          "linear_accuracy": 0.9449999928474426,
+          "mlp_accuracy": 0.9350000023841858,
+          "control_accuracy": 0.5550000071525574
+        }
+      ],
+      [
+        6,
+        {
+          "linear_accuracy": 0.9449999928474426,
+          "mlp_accuracy": 0.9449999928474426,
+          "control_accuracy": 0.5600000023841858
+        }
+      ],
+      [
+        7,
+        {
+          "linear_accuracy": 0.9449999928474426,
+          "mlp_accuracy": 0.9399999976158142,
+          "control_accuracy": 0.5649999976158142
+        }
+      ],
+      [
+        8,
+        {
+          "linear_accuracy": 0.9449999928474426,
+          "mlp_accuracy": 0.9399999976158142,
+          "control_accuracy": 0.5550000071525574
+        }
+      ]
+    ]
+  },
+  "steering_experiments": {
+    "contrastive_sweep": {
+      "-3.0": {
+        "logit_diff": 2.015625,
+        "probe_score": 0.011433332227170467
+      },
+      "-2.0": {
+        "logit_diff": 1.875,
+        "probe_score": 0.04601966589689255
+      },
+      "-1.0": {
+        "logit_diff": 1.4921875,
+        "probe_score": 0.16761724650859833
+      },
+      "-0.5": {
+        "logit_diff": 0.98828125,
+        "probe_score": 0.29120779037475586
+      },
+      "0.0": {
+        "logit_diff": 0.0,
+        "probe_score": 0.45608195662498474
+      },
+      "0.5": {
+        "logit_diff": 1.0,
+        "probe_score": 0.6310698986053467
+      },
+      "1.0": {
+        "logit_diff": 1.515625,
+        "probe_score": 0.7772439122200012
+      },
+      "2.0": {
+        "logit_diff": 1.8984375,
+        "probe_score": 0.9357477426528931
+      },
+      "3.0": {
+        "logit_diff": 2.046875,
+        "probe_score": 0.9838165640830994
+      }
+    },
+    "probe_direction_sweep": {
+      "-3.0": {
+        "logit_diff": 0.11279296875,
+        "probe_score": null
+      },
+      "-2.0": {
+        "logit_diff": 0.0751953125,
+        "probe_score": null
+      },
+      "-1.0": {
+        "logit_diff": 0.0380859375,
+        "probe_score": null
+      },
+      "-0.5": {
+        "logit_diff": 0.0196533203125,
+        "probe_score": null
+      },
+      "0.0": {
+        "logit_diff": 0.0,
+        "probe_score": null
+      },
+      "0.5": {
+        "logit_diff": 0.0196533203125,
+        "probe_score": null
+      },
+      "1.0": {
+        "logit_diff": 0.0380859375,
+        "probe_score": null
+      },
+      "2.0": {
+        "logit_diff": 0.07568359375,
+        "probe_score": null
+      },
+      "3.0": {
+        "logit_diff": 0.11279296875,
+        "probe_score": null
+      }
+    },
+    "steering_layer": 31
+  }
+}
