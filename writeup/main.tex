@@ -3,6 +3,7 @@
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
 \usepackage{booktabs}
+\usepackage{multirow}
 \usepackage{subcaption}
 \usepackage{hyperref}
 \usepackage{natbib}
@@ -11,14 +12,14 @@
 \newcommand{\fill}[1]{\textcolor{red}{\textbf{[#1]}}}
 
 \title{Mechanistic Interpretability of Deception in Language Models\\Trained on Social Deduction Games}
-\author{\fill{Your Name} \\ \fill{University / Program}}
+\author{Timothy Obiso \\ AI Safety, Ethics, and Society Final Project}
 \date{\today}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-I study whether language models fine-tuned on social deduction game transcripts develop internally interpretable representations of deception. I fine-tune Llama~3.1~8B with QLoRA on Werewolf and social reasoning game data, jointly optimizing a causal language modeling objective and a binary deception classification loss. I probe all layers for deception-related signal, finding that linear probes achieve up to 97.0\% accuracy compared to 56.5\% for a shuffled-label control baseline, indicating a genuine learned representation of deceptive intent. I then provide causal evidence by applying contrastive activation steering at the identified layer, showing that steering monotonically shifts both output distributions and probe predictions.
+I study whether language models fine-tuned on social deduction game transcripts develop internally interpretable representations of deception. I fine-tune Llama~3.1~8B with QLoRA on Werewolf and social reasoning game data, jointly optimizing a causal language modeling objective and a binary deception classification loss. I probe all layers for deception-related signal across five training checkpoints (200--800 steps), finding that linear probes consistently achieve 94--97\% accuracy compared to 50--60\% for a shuffled-label control baseline. The deception feature is nonlinearly encoded at the embedding layer but becomes linearly accessible by layer~5, with a ``write once, read anywhere'' pattern across the residual stream. I then provide causal evidence by applying contrastive activation steering, showing that steering monotonically shifts probe predictions from 0\% to 100\% deception probability.
 \end{abstract}
 
 \section{Introduction}
@@ -30,7 +31,7 @@ Social deduction games (Werewolf, Among Us, Mafia) provide a natural laboratory 
 I ask two questions:
 \begin{enumerate}
     \item Do fine-tuned language models develop \emph{linearly accessible} internal representations of deception?
-    \item Can we \emph{causally} intervene on these representations to steer model behavior?
+    \item Is it possible to \emph{causally} intervene on these representations to steer model behavior?
 \end{enumerate}
 
 \section{Related Work}
@@ -55,7 +56,7 @@ Each utterance is labeled as deceptive if the speaker holds an evil role (Werewo
 
 The player's role is not included in the input text---it is used only for label generation, ensuring that probes must detect deception from behavioral features rather than surface-level role tokens.
 
-The dataset contains \fill{N} training examples (\fill{XX\%} deceptive), \fill{N} validation, and \fill{N} test examples.
+The combined dataset contains approximately 26{,}500 training examples, with validation and test splits drawn from the same sources. The deception rate varies by game type; I use the combined label distribution as-is without rebalancing.
 
 \subsection{Model and Training}
 
@@ -72,7 +73,7 @@ Note that 8B parameters may be undersized for developing rich internal represent
 \subsection{Probing}
 \label{sec:probes}
 
-For each transformer layer $\ell \in \{0, \ldots, L\}$, I extract mean-pooled hidden states across the sequence dimension. I train three probes on an 80/20 shuffled split of \fill{N} test examples:
+For each transformer layer $\ell \in \{0, \ldots, L\}$, I extract mean-pooled hidden states across the sequence dimension. I train three probes on an 80/20 shuffled split of 1000 test examples:
 
 \begin{itemize}
     \item \textbf{Linear probe}: logistic regression ($h_\ell \to \sigma(w^\top h_\ell + b)$).
@@ -84,7 +85,7 @@ For each transformer layer $\ell \in \{0, \ldots, L\}$, I extract mean-pooled hi
 
 I use two complementary steering methods at the layer $\ell^*$ identified by probing:
 
-\textbf{Contrastive steering.} I compute a steering vector $v = \bar{h}_{\text{deceptive}} - \bar{h}_{\text{honest}}$ from 50 deceptive and 50 honest examples at layer $\ell^*$, normalized to unit length. At inference, I intervene on the residual stream:
+\textbf{Contrastive steering.} I compute a steering vector $v = \bar{h}_{\text{deceptive}} - \bar{h}_{\text{honest}}$ from 20 deceptive and 20 honest examples at layer $\ell^*$, normalized to unit length. At inference, I intervene on the residual stream:
 \begin{equation}
     h_\ell' = h_\ell + \alpha \cdot v
 \end{equation}
@@ -115,93 +116,74 @@ Figure~\ref{fig:training} shows the combined loss decreasing over training, conf
 
 \begin{figure}[h]
     \centering
-    \includegraphics[width=0.85\textwidth]{../analysis_results/probe_accuracy.png}
-    \caption{Deception probe accuracy across layers. Linear (blue) and MLP (green) probes compared against a shuffled-label control baseline (red dashed). The gray dotted line indicates chance performance (50\%).}
+    \includegraphics[width=\textwidth]{../analysis_results/probe_accuracy_all_checkpoints.png}
+    \caption{Probe accuracy across layers at five training checkpoints (200--800 steps). Left: linear probe. Center: MLP probe. Right: control probe (shuffled labels). The gray dotted line indicates chance (50\%).}
     \label{fig:probes}
 \end{figure}
 
-Tables~\ref{tab:probes100}--\ref{tab:probes300} report the top-5 layers at three training checkpoints (100, 200, and 300 steps). Linear probe accuracy rises from 94.0\% at early checkpoints to 97.0\% at 300 steps, while the control baseline remains around 56.5--61.0\%. The 34--40.5 percentage point gap confirms that the deception signal is genuine and not an artifact of high-dimensional spurious correlations.
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.7\textwidth]{../analysis_results/peak_accuracy_over_training.png}
+    \caption{Peak probe accuracy over training. Linear and MLP probes both reach 95--97\% by step~300, while the control baseline stays near chance.}
+    \label{fig:peak}
+\end{figure}
+
+Figure~\ref{fig:probes} shows probe accuracy across all 33 layers at five training checkpoints (200, 300, 400, 500, and 800 steps), and Figure~\ref{fig:peak} summarizes the peak accuracy trend. Table~\ref{tab:probes} reports the top-5 layers at each checkpoint. Across all checkpoints, the linear probe reaches 94--97\% while the shuffled-label control baseline averages 50--60\%, yielding a 34--47 percentage point gap that confirms the deception signal is genuine and not an artifact of high-dimensional spurious correlations.
 
 \begin{table}[h]
 \centering
-\begin{minipage}{0.32\textwidth}
-\centering
-\begin{tabular}{lccc}
+\small
+\begin{tabular}{cl ccc}
 \toprule
-Layer & Lin & MLP & Ctrl \\
+Step & Layer & Linear & MLP & Control \\
 \midrule
-15 & 94.0 & 93.5 & 59.5 \\
-16 & 94.0 & 93.5 & 60.0 \\
-19 & 94.0 & 92.5 & 60.0 \\
-24 & 94.0 & 92.0 & 59.5 \\
-28 & 94.0 & 92.5 & 59.5 \\
+\multirow{3}{*}{200} & 24 & 94.0 & 91.0 & 61.0 \\
+ & 25 & 94.0 & 90.5 & 60.0 \\
+ & 31 & 94.0 & 92.0 & 59.5 \\
+\midrule
+\multirow{3}{*}{300} & 5 & 97.0 & 95.0 & 56.5 \\
+ & 7 & 97.0 & 96.0 & 56.5 \\
+ & 9 & 97.0 & 96.0 & 57.0 \\
+\midrule
+\multirow{3}{*}{400} & 5 & 95.5 & 95.0 & 50.5 \\
+ & 8 & 95.5 & 95.0 & 50.0 \\
+ & 9 & 95.5 & 95.5 & 52.0 \\
+\midrule
+\multirow{3}{*}{500} & 5 & 94.0 & 93.5 & 61.5 \\
+ & 10 & 94.0 & 93.5 & 59.0 \\
+ & 20 & 94.0 & 93.5 & 60.5 \\
+\midrule
+\multirow{3}{*}{800} & 32 & 95.0 & 94.5 & 51.5 \\
+ & 5 & 94.5 & 93.5 & 55.5 \\
+ & 17 & 94.5 & 95.0 & 55.5 \\
 \bottomrule
 \end{tabular}
-\subcaption{100 steps.}
-\label{tab:probes100}
-\end{minipage}%
-\hfill
-\begin{minipage}{0.32\textwidth}
-\centering
-\begin{tabular}{lccc}
-\toprule
-Layer & Lin & MLP & Ctrl \\
-\midrule
-24 & 94.0 & 91.0 & 61.0 \\
-25 & 94.0 & 90.5 & 60.0 \\
-26 & 94.0 & 91.5 & 59.5 \\
-30 & 94.0 & 91.5 & 59.0 \\
-31 & 94.0 & 92.0 & 59.5 \\
-\bottomrule
-\end{tabular}
-\subcaption{200 steps.}
-\label{tab:probes200}
-\end{minipage}%
-\hfill
-\begin{minipage}{0.32\textwidth}
-\centering
-\begin{tabular}{lccc}
-\toprule
-Layer & Lin & MLP & Ctrl \\
-\midrule
-5 & 97.0 & 95.0 & 56.5 \\
-6 & 97.0 & 95.0 & 56.5 \\
-7 & 97.0 & 96.0 & 56.5 \\
-8 & 97.0 & 96.0 & 56.0 \\
-9 & 97.0 & 96.0 & 57.0 \\
-\bottomrule
-\end{tabular}
-\subcaption{300 steps.}
-\label{tab:probes300}
-\end{minipage}
-\caption{Top-5 layers by linear probe accuracy (\%) at three training checkpoints.}
+\caption{Top-3 layers by linear probe accuracy (\%) at each training checkpoint.}
 \label{tab:probes}
 \end{table}
 
-Three findings stand out.
+Four findings stand out.
 
-First, in early layers the MLP probe already exceeds 90\% accuracy while the linear probe lags behind (though still above control). This indicates that deception-related information is present in early-layer representations but encoded in a \emph{nonlinear} geometry that only the MLP probe can recover. As activations pass through successive transformer layers, the linear probe closes the gap and matches or exceeds the MLP by mid-network. This pattern---nonlinear in early layers, linearly separable in later layers---suggests that the network progressively reorganizes the deception feature into a linearly accessible direction, consistent with prior observations that features become more linearly decodable in deeper layers \citep{alain2016understanding}. This is also evidence that the model is genuinely processing deception-related information rather than memorizing surface patterns, which would be linearly decodable from the embedding layer onward.
+First, at every checkpoint the MLP probe achieves $>$93\% accuracy from layer~0 onward, while the linear probe at layer~0 ranges from 54--60\%. This gap indicates that deception-related information is present in the embedding layer but encoded in a \emph{nonlinear} geometry that only the MLP probe can recover. As activations flow through successive transformer layers, the linear probe rapidly closes the gap, reaching parity by layer~3--5. This pattern---nonlinear in early layers, linearly separable in later layers---suggests the network progressively reorganizes the deception feature into a linearly accessible direction, consistent with prior findings that features become more linearly decodable in deeper layers \citep{alain2016understanding}. This is also evidence that the model genuinely processes deception-related information rather than memorizing surface patterns, which would be linearly decodable from the embedding layer onward.
 
-Second, the MLP probe slightly underperforms the linear probe at peak layers (93.5\% vs.\ 94.0\% at 100 steps, 95.0\% vs.\ 97.0\% at 300 steps), likely due to overfitting on the smaller training set. The key conclusion is that deception is \emph{linearly accessible}: a single hyperplane in activation space suffices.
+Second, once the linear probe reaches peak accuracy (around layer~5), it remains at a near-constant plateau through the remaining layers. This ``write once, read anywhere'' pattern is consistent with the residual stream acting as persistent memory: the deception feature is written into the residual stream by early layers and preserved through the rest of the network.
 
-Third, the peak layer follows a non-monotonic trajectory across training: layer~15 at 100 steps, layer~24 at 200 steps, then layer~5 at 300 steps, while accuracy monotonically increases (94.0\% $\to$ 94.0\% $\to$ 97.0\%). The initial deepening from layer~15 to layer~24 may reflect a transition from shallow lexical features to more abstract representations. The subsequent shift back to early layers at 300 steps, accompanied by a 3-point accuracy increase, suggests that as training progresses, the model consolidates the deception feature into a strong, early representation---perhaps embedding deception-relevant information directly into the residual stream at early layers rather than requiring progressive computation across many layers. This is consistent with the ``residual stream as memory'' view: once a feature is well-learned, it can be written early and read at any subsequent layer.
+Third, peak linear probe accuracy follows a non-monotonic trajectory across training: 94.0\% at 200 steps, rising to 97.0\% at 300 steps, then settling to 94--95.5\% at later checkpoints. The peak at 300 steps may reflect a transient phase where the deception feature is maximally separated before the model redistributes capacity to other objectives (language modeling). The control baseline is lowest at 400 steps ($\sim$50\%, i.e., chance), suggesting that mid-training produces the cleanest separation between genuine and spurious signal.
+
+Fourth, the MLP probe slightly underperforms the linear probe at peak layers in most checkpoints, likely due to overfitting on the smaller probe training set (800 examples). The key conclusion is that deception is \emph{linearly accessible}: a single hyperplane in activation space suffices.
 
 \subsection{Steering Results}
 
 \begin{figure}[h]
     \centering
-    \includegraphics[width=0.95\textwidth]{../analysis_results/steering_sweep.png}
+    \includegraphics[width=0.95\textwidth]{../analysis_results_400/steering_sweep.png}
     \caption{Left: contrastive steering strength vs.\ logit divergence (blue) and probe score (red). Right: probe-direction steering strength vs.\ logit divergence.}
     \label{fig:steering}
 \end{figure}
 
-\fill{Describe: Does logit divergence increase monotonically with $|\alpha|$? Is the relationship roughly symmetric around $\alpha=0$? Does the probe score increase with positive $\alpha$ (toward deception) and decrease with negative $\alpha$?}
+Figure~\ref{fig:steering} shows the steering results at the 400-step checkpoint (layer~4). For contrastive steering, logit divergence is approximately constant ($\sim$2.3) for all nonzero $\alpha$, indicating that even small steering perturbations substantially alter the output distribution. The probe score varies monotonically across the full range of $\alpha$, sweeping from $\sim$1.0 at one extreme to $\sim$0 at the other (baseline 0.60 at $\alpha = 0$). This monotonic trend is the central causal finding: the contrastive direction (computed from mean activation differences) systematically shifts the probe's reading (trained via independent logistic regression), confirming that both methods identify the same underlying feature in the residual stream.
 
-\fill{If the probe score shows a monotonic trend, this is the key causal result: the contrastive direction (computed from mean differences) changes the probe's reading (trained via logistic regression), confirming they identify the same underlying feature.}
-
-\subsection{Qualitative Steering Examples}
-
-\fill{Include 2--3 examples from the qualitative output. Show how the model's top predicted next tokens shift when steering toward/away from deception. E.g., does steering toward deception produce more accusatory or deflective continuations?}
+For probe-direction steering, logit divergence increases monotonically with $|\alpha|$ (0 to 1.375 at $\alpha = \pm 3$) and is roughly symmetric around $\alpha = 0$. The smaller magnitude compared to contrastive steering (1.4 vs.\ 2.3) suggests that the probe's weight vector captures a component of the deception feature but not its full causal structure.
 
 \section{Discussion}
 
@@ -228,7 +210,7 @@ This work studies deception as an internal model property in order to improve de
 
 \section{Conclusion}
 
-I presented a pipeline for studying deception representations in language models via social deduction game fine-tuning. The main contributions are: (1) probing with proper control baselines showing strong positive evidence for linearly accessible deception representations (97\% vs.\ 57\% control), and (2) providing \fill{supporting/no} causal evidence via activation steering that the identified features causally influence model behavior.
+I presented a pipeline for studying deception representations in language models via social deduction game fine-tuning. The main contributions are: (1) probing with proper control baselines showing strong positive evidence for linearly accessible deception representations (97\% vs.\ 57\% control), and (2) providing supporting causal evidence via activation steering that the identified features causally influence model behavior---contrastive steering monotonically shifts probe predictions from 0\% to 100\% deception probability.
 
 These results suggest that probe-based monitoring of deceptive intent in language model activations is a viable approach for AI safety, at least in domains where deception has a consistent behavioral signature.
 
