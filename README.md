@@ -57,13 +57,13 @@ Probe all layers and run activation steering experiments:
 python scripts/analyze_model.py \
     --checkpoint_dir ./checkpoints/checkpoint-400 \
     --analysis_type probes+steering \
-    --output_dir ./analysis_results_400
+    --output_dir ./results/400
 
 # Probes only
 python scripts/analyze_model.py \
     --checkpoint_dir ./checkpoints/checkpoint-400 \
     --analysis_type probes \
-    --output_dir ./analysis_results_400
+    --output_dir ./results/400
 ```
 
 ### 3. Generate Figures
@@ -91,7 +91,7 @@ deception_interpretability/
 │   ├── plot_probes_across_checkpoints.py
 │   └── plot_training_curves.py
 ├── writeup/                     # LaTeX paper
-├── analysis_results_*/          # Results at each checkpoint
+├── results/*/          # Results at each checkpoint
 └── CLAUDE.md                    # Dev instructions
 ```
 

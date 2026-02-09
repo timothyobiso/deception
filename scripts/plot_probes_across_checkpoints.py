@@ -23,7 +23,7 @@ def main():
     checkpoints = [200, 300, 400, 500, 800]
     results = {}
     for step in checkpoints:
-        path = os.path.join(base, f"analysis_results_{step}", "analysis_results.json")
+        path = os.path.join(base, f"results/{step}", "analysis_results.json")
         if os.path.exists(path):
             results[step] = load_results(path)
 
@@ -58,7 +58,7 @@ def main():
     axes[2].set_ylim(0.35, 0.75)
 
     plt.tight_layout()
-    out1 = os.path.join(base, "analysis_results", "probe_accuracy_all_checkpoints.png")
+    out1 = os.path.join(base, "results", "probe_accuracy_all_checkpoints.png")
     os.makedirs(os.path.dirname(out1), exist_ok=True)
     plt.savefig(out1, dpi=150)
     plt.close()
@@ -83,7 +83,7 @@ def main():
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    out2 = os.path.join(base, "analysis_results", "peak_accuracy_over_training.png")
+    out2 = os.path.join(base, "results", "peak_accuracy_over_training.png")
     plt.savefig(out2, dpi=150)
     plt.close()
     print(f"Saved to {out2}")
@@ -103,7 +103,7 @@ def main():
     ax.grid(True, alpha=0.3, axis="y")
 
     plt.tight_layout()
-    out3 = os.path.join(base, "analysis_results", "nonlinear_gap.png")
+    out3 = os.path.join(base, "results", "nonlinear_gap.png")
     plt.savefig(out3, dpi=150)
     plt.close()
     print(f"Saved to {out3}")
