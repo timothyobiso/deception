@@ -208,10 +208,10 @@ class DeceptionAnalyzer:
                 best_layer = layer_idx
                 best_probe = lp
 
-        # Store best probe for steering (cap to valid decoder layer range)
-        max_layer = self.num_layers - 1
+        # Store best probe for steering
+        # Hidden state index i is the output of decoder layer i-1 (index 0 is embedding)
         self.best_probe = best_probe
-        self.best_probe_layer = min(best_layer, max_layer)
+        self.best_probe_layer = max(best_layer - 1, 0)
 
         # Report
         ranked = sorted(
