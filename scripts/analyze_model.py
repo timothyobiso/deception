@@ -208,9 +208,10 @@ class DeceptionAnalyzer:
                 best_layer = layer_idx
                 best_probe = lp
 
-        # Store best probe for steering
+        # Store best probe for steering (cap to valid decoder layer range)
+        max_layer = self.num_layers - 1
         self.best_probe = best_probe
-        self.best_probe_layer = best_layer
+        self.best_probe_layer = min(best_layer, max_layer)
 
         # Report
         ranked = sorted(
