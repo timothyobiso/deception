@@ -111,12 +111,13 @@ class ActivationSteering:
                 else:
                     hidden_states = output
                 
+                vec = vector.unsqueeze(0).to(hidden_states.device)
                 if self.config.intervention_type == 'add':
-                    hidden_states = hidden_states + strength * vector.unsqueeze(0)
+                    hidden_states = hidden_states + strength * vec
                 elif self.config.intervention_type == 'multiply':
-                    hidden_states = hidden_states * (1 + strength * vector.unsqueeze(0))
+                    hidden_states = hidden_states * (1 + strength * vec)
                 elif self.config.intervention_type == 'replace':
-                    hidden_states[:, :, :vector.size(-1)] = strength * vector.unsqueeze(0)
+                    hidden_states[:, :, :vector.size(-1)] = strength * vec
                 
                 if isinstance(output, tuple):
                     return (hidden_states,) + output[1:]
