@@ -558,7 +558,7 @@ class DeceptionAnalyzer:
                         hidden = output[0]
                     else:
                         hidden = output
-                    steered = hidden + s * vec.unsqueeze(0).to(hidden.device)
+                    steered = hidden + s * vec.unsqueeze(0).to(device=hidden.device, dtype=hidden.dtype)
                     cap_list.append(steered.detach().cpu())
                     if isinstance(output, tuple):
                         return (steered,) + output[1:]

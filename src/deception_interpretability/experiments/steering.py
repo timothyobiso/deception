@@ -111,7 +111,7 @@ class ActivationSteering:
                 else:
                     hidden_states = output
                 
-                vec = vector.unsqueeze(0).to(hidden_states.device)
+                vec = vector.unsqueeze(0).to(device=hidden_states.device, dtype=hidden_states.dtype)
                 if self.config.intervention_type == 'add':
                     hidden_states = hidden_states + strength * vec
                 elif self.config.intervention_type == 'multiply':
